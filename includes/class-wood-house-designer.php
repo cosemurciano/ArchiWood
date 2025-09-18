@@ -131,11 +131,15 @@ if ( ! class_exists( 'Wood_House_Designer' ) ) {
                         'exportUnavailable'=> esc_html__( 'Unable to export the project right now.', 'wood-house-designer' ),
                         'errorKonva'       => esc_html__( 'The drawing library is not available. Please refresh the page.', 'wood-house-designer' ),
                         'cursorStatus'     => esc_html__( 'Cursor: %x% × %y% m', 'wood-house-designer' ),
-                        'selectedStatus'   => esc_html__( 'Selected %name% - %width%m × %height%m', 'wood-house-designer' ),
-                        'cottageLabel'     => esc_html__( 'Cottage %width%m × %depth%m', 'wood-house-designer' ),
+                        'selectedStatus'   => esc_html__( 'Selected %name% - %width%m × %depth%m × %height%m', 'wood-house-designer' ),
+                        'cottageLabel'     => esc_html__( 'Cottage %width%m × %depth%m × %height%m', 'wood-house-designer' ),
                         'noCottages'       => esc_html__( 'No cottages configured yet.', 'wood-house-designer' ),
                         'designCanvas'     => esc_html__( 'Design Canvas', 'wood-house-designer' ),
                         'toolbox'          => esc_html__( 'Toolbox', 'wood-house-designer' ),
+                        'viewTop'          => esc_html__( 'Top View', 'wood-house-designer' ),
+                        'viewIso'          => esc_html__( 'Isometric View', 'wood-house-designer' ),
+                        'viewToggleLabel'  => esc_html__( 'View mode', 'wood-house-designer' ),
+                        'isoViewStatus'    => esc_html__( 'Isometric view active.', 'wood-house-designer' ),
                     ),
                 )
             );

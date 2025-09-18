@@ -56,6 +56,8 @@
     const ISO_ANGLE = Math.PI / 6;
     const ISO_COS = Math.cos(ISO_ANGLE);
     const ISO_SIN = Math.sin(ISO_ANGLE);
+    const ISO_INV_COS = ISO_COS === 0 ? 0 : 1 / ISO_COS;
+    const ISO_INV_SIN = ISO_SIN === 0 ? 0 : 1 / ISO_SIN;
     const CONTROL_BUTTON_SIZE = 24;
 
     function snapPosition(position, gridSize) {
@@ -64,6 +66,46 @@
             x: Math.round(position.x / size) * size,
             y: Math.round(position.y / size) * size
         };
+    }
+
+    function computeIsoOffset(width, height, gridSize) {
+        const margin = gridSize || 0;
+        const offsetX = (height + margin) * ISO_COS;
+        const offsetY = margin;
+
+        return { x: offsetX, y: offsetY };
+    }
+
+    function worldToViewPosition(world, mode, options) {
+        const normalized = world || { x: 0, y: 0 };
+        if (mode === 'iso') {
+            const isoOptions = options || {};
+            const isoOffset = isoOptions.isoOffset || { x: 0, y: 0 };
+
+            return {
+                x: (normalized.x - normalized.y) * ISO_COS + isoOffset.x,
+                y: (normalized.x + normalized.y) * ISO_SIN + isoOffset.y
+            };
+        }
+
+        return { x: normalized.x, y: normalized.y };
+    }
+
+    function viewToWorldPosition(view, mode, options) {
+        const normalized = view || { x: 0, y: 0 };
+        if (mode === 'iso') {
+            const isoOptions = options || {};
+            const isoOffset = isoOptions.isoOffset || { x: 0, y: 0 };
+            const adjustedX = normalized.x - isoOffset.x;
+            const adjustedY = normalized.y - isoOffset.y;
+
+            return {
+                x: (adjustedX * ISO_INV_COS + adjustedY * ISO_INV_SIN) / 2,
+                y: (adjustedY * ISO_INV_SIN - adjustedX * ISO_INV_COS) / 2
+            };
+        }
+
+        return { x: normalized.x, y: normalized.y };
     }
 
     function computeBoundsFromPoints(points) {
@@ -178,8 +220,8 @@
             frontRightTop: projectIsometric(widthPx, depthPx, heightPx)
         };
 
-        const shiftX = -corners.frontLeftBottom.x;
-        const shiftY = -corners.frontLeftBottom.y;
+        const shiftX = -corners.backLeftBottom.x;
+        const shiftY = -corners.backLeftBottom.y;
 
         const shifted = {};
         Object.keys(corners).forEach(function (key) {
@@ -198,7 +240,7 @@
             shifted[key].y += extraY;
         });
 
-        const baseY = shifted.frontLeftBottom.y;
+        const baseY = shifted.backLeftBottom.y;
         Object.keys(shifted).forEach(function (key) {
             shifted[key].y -= baseY;
         });
@@ -274,34 +316,36 @@
 
         const projectedTop = [];
         const projectedBottom = [];
-        let minX = Infinity;
-        let minY = Infinity;
+        let minBaseX = Infinity;
+        let minBaseY = Infinity;
 
         basePoints.forEach(function (point) {
+            minBaseX = Math.min(minBaseX, point.x);
+            minBaseY = Math.min(minBaseY, point.y);
+
             const topPoint = projectIsometric(point.x, point.y, heightPx);
             const bottomPoint = projectIsometric(point.x, point.y, 0);
 
             projectedTop.push(topPoint);
             projectedBottom.push(bottomPoint);
-
-            minX = Math.min(minX, topPoint.x, bottomPoint.x);
-            minY = Math.min(minY, topPoint.y, bottomPoint.y);
         });
 
-        const shiftX = minX !== Infinity ? -minX : 0;
-        const shiftY = minY !== Infinity ? -minY : 0;
+        const origin =
+            minBaseX !== Infinity && minBaseY !== Infinity
+                ? projectIsometric(minBaseX, minBaseY, 0)
+                : { x: 0, y: 0 };
 
         const adjustedTop = projectedTop.map(function (point) {
             return {
-                x: point.x + shiftX,
-                y: point.y + shiftY
+                x: point.x - origin.x,
+                y: point.y - origin.y
             };
         });
 
         const adjustedBottom = projectedBottom.map(function (point) {
             return {
-                x: point.x + shiftX,
-                y: point.y + shiftY
+                x: point.x - origin.x,
+                y: point.y - origin.y
             };
         });
 
@@ -358,9 +402,29 @@
         };
     }
 
-    function applyViewModeToNode(node, mode) {
+    function applyViewModeToNode(node, mode, options) {
         if (!node || typeof node.findOne !== 'function') {
             return;
+        }
+
+        const viewOptions = options || {};
+        const isoOffset = viewOptions.isoOffset || { x: 0, y: 0 };
+        const gridSize = viewOptions.gridSize && viewOptions.gridSize > 0 ? viewOptions.gridSize : 1;
+        let worldPosition = node.getAttr('whdWorldPosition');
+
+        if (!worldPosition) {
+            const currentPosition = node.position();
+            const assumedWorld =
+                mode === 'iso'
+                    ? viewToWorldPosition(currentPosition, 'iso', { isoOffset: isoOffset })
+                    : { x: currentPosition.x, y: currentPosition.y };
+            worldPosition = { x: assumedWorld.x, y: assumedWorld.y };
+            node.setAttr('whdWorldPosition', worldPosition);
+        }
+
+        if (worldPosition) {
+            const nextPosition = worldToViewPosition(worldPosition, mode, { isoOffset: isoOffset });
+            node.position(nextPosition);
         }
 
         const topView = node.findOne('.whd-top-view');
@@ -372,6 +436,15 @@
 
         if (isoView) {
             isoView.visible(mode === 'iso');
+        }
+
+        if (typeof node.dragBoundFunc === 'function' && typeof node.draggable === 'function' && node.draggable()) {
+            node.dragBoundFunc(function (pos) {
+                const isoOptions = { isoOffset: isoOffset };
+                const world = viewToWorldPosition(pos, mode, isoOptions);
+                const snapped = snapPosition(world, gridSize);
+                return worldToViewPosition(snapped, mode, isoOptions);
+            });
         }
     }
 
@@ -585,11 +658,12 @@
             x: gridSize * 2,
             y: gridSize * 2,
             draggable: true,
-            dragBoundFunc: function (pos) {
-                return snapPosition(pos, gridSize);
-            },
             name: 'cottage whd-draggable'
         });
+
+        const initialWorld = snapPosition({ x: gridSize * 2, y: gridSize * 2 }, gridSize);
+        group.position(initialWorld);
+        group.setAttr('whdWorldPosition', initialWorld);
 
         group.setAttr('whdDimensions', {
             widthMeters: widthMeters,
@@ -686,7 +760,7 @@
         return items;
     }
 
-    function drawGrid(layer, width, height, gridSize, scaleRatio, mode) {
+    function drawGrid(layer, width, height, gridSize, scaleRatio, mode, options) {
         layer.destroyChildren();
 
         const elements = [];
@@ -695,46 +769,68 @@
         const minorColor = '#e2e8f0';
 
         if (mode === 'iso') {
-            const tileWidth = gridSize;
-            const tileHeight = gridSize * 0.5;
-            const horizontalCount = Math.ceil(width / tileWidth) + Math.ceil(height / tileHeight);
-            const verticalCount = horizontalCount;
-            const centerX = width / 2;
-            const offsetY = tileHeight * 2;
+            const isoOptions = options || {};
+            const isoOffset = isoOptions.isoOffset || { x: 0, y: 0 };
+            const horizontalCount = Math.ceil(height / gridSize);
+            const verticalCount = Math.ceil(width / gridSize);
+            const viewOptions = { isoOffset: isoOffset };
 
-            for (let i = -horizontalCount; i <= horizontalCount; i++) {
+            for (let i = 0; i <= verticalCount; i++) {
                 const isMajor = i % majorEvery === 0;
-                const start = projectIsometric(i * tileWidth, -verticalCount * tileWidth, 0);
-                const end = projectIsometric(i * tileWidth, verticalCount * tileWidth, 0);
-                elements.push(new Konva.Line({
-                    points: [start.x + centerX, start.y + offsetY, end.x + centerX, end.y + offsetY],
-                    stroke: isMajor ? majorColor : minorColor,
-                    strokeWidth: isMajor ? 1 : 0.5
-                }));
+                const worldX = i * gridSize;
+                const start = worldToViewPosition({ x: worldX, y: 0 }, 'iso', viewOptions);
+                const end = worldToViewPosition({ x: worldX, y: height }, 'iso', viewOptions);
+                elements.push(
+                    new Konva.Line({
+                        points: [start.x, start.y, end.x, end.y],
+                        stroke: isMajor ? majorColor : minorColor,
+                        strokeWidth: isMajor ? 1 : 0.5
+                    })
+                );
+
+                if (isMajor && i > 0) {
+                    const labelPosition = worldToViewPosition({ x: worldX, y: 0 }, 'iso', viewOptions);
+                    elements.push(
+                        new Konva.Text({
+                            x: labelPosition.x + 6,
+                            y: labelPosition.y - 16,
+                            text: (i * scaleRatio).toFixed(2) + ' m',
+                            fontSize: 10,
+                            fill: '#4a5568',
+                            listening: false
+                        })
+                    );
+                }
             }
 
-            for (let j = -verticalCount; j <= verticalCount; j++) {
+            for (let j = 0; j <= horizontalCount; j++) {
                 const isMajor = j % majorEvery === 0;
-                const start = projectIsometric(-horizontalCount * tileWidth, j * tileWidth, 0);
-                const end = projectIsometric(horizontalCount * tileWidth, j * tileWidth, 0);
-                elements.push(new Konva.Line({
-                    points: [start.x + centerX, start.y + offsetY, end.x + centerX, end.y + offsetY],
-                    stroke: isMajor ? majorColor : minorColor,
-                    strokeWidth: isMajor ? 1 : 0.5
-                }));
-            }
+                const worldY = j * gridSize;
+                const start = worldToViewPosition({ x: 0, y: worldY }, 'iso', viewOptions);
+                const end = worldToViewPosition({ x: width, y: worldY }, 'iso', viewOptions);
+                elements.push(
+                    new Konva.Line({
+                        points: [start.x, start.y, end.x, end.y],
+                        stroke: isMajor ? majorColor : minorColor,
+                        strokeWidth: isMajor ? 1 : 0.5
+                    })
+                );
 
-            const maxHorizontal = Math.ceil(height / tileHeight);
-            const middleIndex = Math.round(maxHorizontal / 2);
-            for (let h = 0; h <= maxHorizontal; h++) {
-                const y = offsetY + h * tileHeight;
-                const isMajor = h % majorEvery === 0;
-                const isMiddle = h === middleIndex;
-                elements.push(new Konva.Line({
-                    points: [0, y, width, y],
-                    stroke: isMiddle ? '#edf2f7' : isMajor ? majorColor : minorColor,
-                    strokeWidth: isMiddle ? 0.25 : isMajor ? 1 : 0.5
-                }));
+                if (isMajor && j > 0) {
+                    const labelPosition = worldToViewPosition({ x: 0, y: worldY }, 'iso', viewOptions);
+                    elements.push(
+                        new Konva.Text({
+                            x: labelPosition.x - 60,
+                            y: labelPosition.y + 4,
+                            width: 56,
+                            align: 'right',
+                            text: (j * scaleRatio).toFixed(2) + ' m',
+                            fontSize: 10,
+                            fill: '#4a5568',
+                            listening: false
+                        })
+                    );
+                }
             }
         } else {
             for (let i = 0; i <= width / gridSize; i++) {
@@ -861,6 +957,7 @@
         const resizeTimerRef = useRef(null);
         const statusRef = useRef('');
         const viewModeRef = useRef('top');
+        const isoOffsetRef = useRef({ x: 0, y: 0 });
 
         const [status, setStatus] = useState('');
         const [viewMode, setViewMode] = useState('top');
@@ -897,7 +994,15 @@
                     heightMeters = parseFloat((dimensions.heightMeters || 0).toFixed(2));
                 }
 
-                const snappedPosition = snapPosition(node.position(), config.gridSize);
+                const isoOptions = { isoOffset: isoOffsetRef.current };
+                let worldPosition = node.getAttr('whdWorldPosition');
+
+                if (!worldPosition) {
+                    worldPosition = viewToWorldPosition(node.position(), viewModeRef.current, isoOptions);
+                }
+
+                const snappedPosition = snapPosition(worldPosition, config.gridSize);
+                node.setAttr('whdWorldPosition', snappedPosition);
                 const positionMeters = {
                     x: parseFloat(((snappedPosition.x / config.gridSize) * config.scaleRatio).toFixed(2)),
                     y: parseFloat(((snappedPosition.y / config.gridSize) * config.scaleRatio).toFixed(2))
@@ -992,7 +1097,27 @@
                     width: containerWidth || width,
                     height: containerHeight || height
                 });
-                drawGrid(gridLayer, stage.width(), stage.height(), config.gridSize, config.scaleRatio, viewModeRef.current);
+                const isoOffset = computeIsoOffset(stage.width(), stage.height(), config.gridSize);
+                isoOffsetRef.current = isoOffset;
+                drawGrid(
+                    gridLayer,
+                    stage.width(),
+                    stage.height(),
+                    config.gridSize,
+                    config.scaleRatio,
+                    viewModeRef.current,
+                    { isoOffset: isoOffset }
+                );
+
+                if (drawingLayerRef.current) {
+                    drawingLayerRef.current.getChildren().forEach(function (child) {
+                        applyViewModeToNode(child, viewModeRef.current, {
+                            isoOffset: isoOffset,
+                            gridSize: config.gridSize
+                        });
+                    });
+                    drawingLayerRef.current.batchDraw();
+                }
             }
 
             const handleResize = function () {
@@ -1035,12 +1160,16 @@
                     return;
                 }
 
-                if (viewModeRef.current !== 'top') {
+                const isoOptions = { isoOffset: isoOffsetRef.current };
+                const mode = viewModeRef.current;
+                const worldPointer = mode === 'iso' ? viewToWorldPosition(pointer, 'iso', isoOptions) : pointer;
+
+                if (!worldPointer || !Number.isFinite(worldPointer.x) || !Number.isFinite(worldPointer.y)) {
                     return;
                 }
 
-                const scaledX = (pointer.x / config.gridSize * config.scaleRatio).toFixed(2);
-                const scaledY = (pointer.y / config.gridSize * config.scaleRatio).toFixed(2);
+                const scaledX = ((worldPointer.x / config.gridSize) * config.scaleRatio).toFixed(2);
+                const scaledY = ((worldPointer.y / config.gridSize) * config.scaleRatio).toFixed(2);
                 updateStatus(formatTemplate(config.strings.cursorStatus, {
                     x: scaledX,
                     y: scaledY
@@ -1089,19 +1218,24 @@
             viewModeRef.current = viewMode;
 
             if (gridLayerRef.current && stageRef.current) {
+                const isoOffset = isoOffsetRef.current;
                 drawGrid(
                     gridLayerRef.current,
                     stageRef.current.width(),
                     stageRef.current.height(),
                     config.gridSize,
                     config.scaleRatio,
-                    viewMode
+                    viewMode,
+                    { isoOffset: isoOffset }
                 );
             }
 
             if (drawingLayerRef.current) {
                 drawingLayerRef.current.getChildren().forEach(function (node) {
-                    applyViewModeToNode(node, viewMode);
+                    applyViewModeToNode(node, viewMode, {
+                        isoOffset: isoOffset,
+                        gridSize: config.gridSize
+                    });
                 });
                 drawingLayerRef.current.batchDraw();
             }
@@ -1131,8 +1265,29 @@
                     return;
                 }
 
+                let worldPosition = node.getAttr('whdWorldPosition');
+                if (!worldPosition) {
+                    worldPosition = snapPosition(node.position(), config.gridSize);
+                    node.setAttr('whdWorldPosition', worldPosition);
+                }
+
+                const currentIsoOffset = { isoOffset: isoOffsetRef.current };
+                const currentViewMode = viewModeRef.current;
+                const positioned = worldToViewPosition(worldPosition, currentViewMode, currentIsoOffset);
+                node.position(positioned);
+
+                node.dragBoundFunc(function (pos) {
+                    const isoOptions = { isoOffset: isoOffsetRef.current };
+                    const world = viewToWorldPosition(pos, viewModeRef.current, isoOptions);
+                    const snapped = snapPosition(world, config.gridSize);
+                    return worldToViewPosition(snapped, viewModeRef.current, isoOptions);
+                });
+
                 updateIsometricGeometry(node, config);
-                applyViewModeToNode(node, viewModeRef.current);
+                applyViewModeToNode(node, viewModeRef.current, {
+                    isoOffset: isoOffsetRef.current,
+                    gridSize: config.gridSize
+                });
 
                 node.on('dragmove transform', function () {
                     updateDimensionLabel(node, config);
@@ -1142,8 +1297,12 @@
                 });
 
                 node.on('dragend', function () {
-                    const snapped = snapPosition(node.position(), config.gridSize);
-                    node.position(snapped);
+                    const isoOptions = { isoOffset: isoOffsetRef.current };
+                    const worldPos = viewToWorldPosition(node.position(), viewModeRef.current, isoOptions);
+                    const snapped = snapPosition(worldPos, config.gridSize);
+                    node.setAttr('whdWorldPosition', snapped);
+                    const nextView = worldToViewPosition(snapped, viewModeRef.current, isoOptions);
+                    node.position(nextView);
                     if (drawingLayerRef.current) {
                         drawingLayerRef.current.batchDraw();
                     }

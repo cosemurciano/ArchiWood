@@ -1217,8 +1217,9 @@
         useEffect(function () {
             viewModeRef.current = viewMode;
 
+            const isoOffset = isoOffsetRef.current;
+
             if (gridLayerRef.current && stageRef.current) {
-                const isoOffset = isoOffsetRef.current;
                 drawGrid(
                     gridLayerRef.current,
                     stageRef.current.width(),

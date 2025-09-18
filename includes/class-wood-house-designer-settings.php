@@ -33,6 +33,8 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
             'canvas_width'     => 1000,
             'canvas_height'    => 600,
             'export_file_name' => 'wood-house-project',
+            'export_dpi'       => 150,
+            'casette'          => array(),
         );
 
         /**
@@ -54,18 +56,21 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
         private function __construct() {
             add_action( 'admin_menu', array( $this, 'register_menu' ) );
             add_action( 'admin_init', array( $this, 'register_settings' ) );
+            add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
         }
 
         /**
          * Register settings menu.
          */
         public function register_menu() {
-            add_options_page(
+            add_menu_page(
                 __( 'Wood House Designer', 'wood-house-designer' ),
                 __( 'Wood House Designer', 'wood-house-designer' ),
                 'manage_options',
                 'wood-house-designer',
-                array( $this, 'render_settings_page' )
+                array( $this, 'render_settings_page' ),
+                'dashicons-admin-multisite',
+                58
             );
         }
 
@@ -144,6 +149,60 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                     'label_for' => 'export_file_name',
                 )
             );
+
+            add_settings_section(
+                'wood_house_designer_casette',
+                __( 'Cottages', 'wood-house-designer' ),
+                array( $this, 'render_casette_section_intro' ),
+                'wood_house_designer_settings'
+            );
+
+            add_settings_field(
+                'casette',
+                __( 'Available Cottages', 'wood-house-designer' ),
+                array( $this, 'render_casette_field' ),
+                'wood_house_designer_settings',
+                'wood_house_designer_casette',
+                array(
+                    'label_for' => 'casette',
+                )
+            );
+        }
+
+        /**
+         * Enqueue admin scripts for settings page.
+         *
+         * @param string $hook Current admin page hook.
+         */
+        public function enqueue_admin_assets( $hook ) {
+            if ( 'toplevel_page_wood-house-designer' !== $hook ) {
+                return;
+            }
+
+            wp_enqueue_style(
+                'wood-house-designer-admin',
+                WOOD_HOUSE_DESIGNER_URL . 'assets/css/admin.css',
+                array(),
+                WOOD_HOUSE_DESIGNER_VERSION
+            );
+
+            wp_enqueue_script(
+                'wood-house-designer-admin',
+                WOOD_HOUSE_DESIGNER_URL . 'assets/js/admin.js',
+                array(),
+                WOOD_HOUSE_DESIGNER_VERSION,
+                true
+            );
+
+            wp_localize_script(
+                'wood-house-designer-admin',
+                'WoodHouseDesignerAdmin',
+                array(
+                    'addLabel'    => __( 'Add Cottage', 'wood-house-designer' ),
+                    'removeLabel' => __( 'Remove', 'wood-house-designer' ),
+                    'emptyLabel'  => __( 'No cottages configured yet.', 'wood-house-designer' ),
+                )
+            );
         }
 
         /**
@@ -210,7 +269,95 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                 }
             }
 
+            if ( isset( $input['casette'] ) && is_array( $input['casette'] ) ) {
+                $casette = array();
+
+                foreach ( $input['casette'] as $item ) {
+                    if ( ! is_array( $item ) ) {
+                        continue;
+                    }
+
+                    $width = isset( $item['width'] ) ? (float) $item['width'] : 0.0;
+                    $depth = isset( $item['depth'] ) ? (float) $item['depth'] : 0.0;
+
+                    if ( $width <= 0 || $depth <= 0 ) {
+                        continue;
+                    }
+
+                    $casette[] = array(
+                        'width' => round( $width, 2 ),
+                        'depth' => round( $depth, 2 ),
+                    );
+                }
+
+                $sanitized['casette'] = $casette;
+            }
+
             return $sanitized;
+        }
+
+        /**
+         * Render introduction text for cottages section.
+         */
+        public function render_casette_section_intro() {
+            echo '<p>' . esc_html__( 'Define the list of cottage footprints available in the designer. Width and depth are expressed in meters.', 'wood-house-designer' ) . '</p>';
+        }
+
+        /**
+         * Render cottage repeatable field.
+         */
+        public function render_casette_field() {
+            $options = $this->get_options();
+            $casette = isset( $options['casette'] ) && is_array( $options['casette'] ) ? $options['casette'] : array();
+            $field_name = self::OPTION_KEY . '[casette]';
+            ?>
+            <div id="whd-casette-wrapper" class="whd-casette-wrapper" data-field-name="<?php echo esc_attr( $field_name ); ?>">
+                <div id="whd-casette-list" class="whd-casette-list" data-index="<?php echo esc_attr( count( $casette ) ); ?>">
+                    <?php if ( empty( $casette ) ) : ?>
+                        <p class="whd-casette-empty"><?php esc_html_e( 'No cottages configured yet.', 'wood-house-designer' ); ?></p>
+                    <?php else : ?>
+                        <?php foreach ( $casette as $index => $item ) :
+                            $width = isset( $item['width'] ) ? $item['width'] : '';
+                            $depth = isset( $item['depth'] ) ? $item['depth'] : '';
+                            ?>
+                            <div class="whd-casetta-row" data-index="<?php echo esc_attr( $index ); ?>">
+                                <div class="whd-casetta-field">
+                                    <label>
+                                        <?php esc_html_e( 'Width (m)', 'wood-house-designer' ); ?>
+                                        <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name . '[' . $index . '][width]' ); ?>" value="<?php echo esc_attr( $width ); ?>" />
+                                    </label>
+                                </div>
+                                <div class="whd-casetta-field">
+                                    <label>
+                                        <?php esc_html_e( 'Depth (m)', 'wood-house-designer' ); ?>
+                                        <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name . '[' . $index . '][depth]' ); ?>" value="<?php echo esc_attr( $depth ); ?>" />
+                                    </label>
+                                </div>
+                                <button type="button" class="button whd-remove-casetta"><?php esc_html_e( 'Remove', 'wood-house-designer' ); ?></button>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+                <button type="button" class="button button-secondary" id="whd-add-casetta"><?php esc_html_e( 'Add Cottage', 'wood-house-designer' ); ?></button>
+            </div>
+            <script type="text/html" id="tmpl-whd-casetta-row">
+                <div class="whd-casetta-row" data-index="{{index}}">
+                    <div class="whd-casetta-field">
+                        <label>
+                            <?php esc_html_e( 'Width (m)', 'wood-house-designer' ); ?>
+                            <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name ); ?>[{{index}}][width]" value="" />
+                        </label>
+                    </div>
+                    <div class="whd-casetta-field">
+                        <label>
+                            <?php esc_html_e( 'Depth (m)', 'wood-house-designer' ); ?>
+                            <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name ); ?>[{{index}}][depth]" value="" />
+                        </label>
+                    </div>
+                    <button type="button" class="button whd-remove-casetta"><?php esc_html_e( 'Remove', 'wood-house-designer' ); ?></button>
+                </div>
+            </script>
+            <?php
         }
 
         /**

@@ -6,7 +6,7 @@ WordPress plugin that powers an interactive Konva.js canvas to design custom woo
 
 1. Copy the `wood-house-designer` directory into your WordPress installation under `wp-content/plugins/`.
 2. Activate **Wood House Designer** from the WordPress Plugins page.
-3. Configure the default grid size, scale ratio and canvas size from **Settings → Wood House Designer**.
+3. Open **Wood House Designer** from the WordPress admin menu to configure the default grid, canvas size and available cottages.
 4. Create a page and either:
    - Insert the `[wood_house_designer]` shortcode in the content, or
    - Assign the **Wood House Designer App** page template to render the full application layout.
@@ -18,8 +18,8 @@ The plugin can check GitHub releases for automatic updates. If you maintain a fo
 ## Features
 
 - Konva.js powered design surface with snap grid and real scale guides.
-- Toolbox with draggable wall, window, beam and dimension label primitives.
-- Export button that generates a JSON package with project metadata and scene data.
+- Toolbox populated with cottage footprints defined in the plugin settings.
+- Export button that generates a PNG snapshot at 150 DPI.
 - Accessible layout with dedicated header, tools panel, canvas and status bar regions.
 
 ## Development

@@ -9,19 +9,17 @@
 
     const DEFAULT_STRINGS = {
         appTitle: 'Wood House Designer',
-        shapesHeading: 'Shapes',
+        shapesHeading: 'Cottages',
         actionsHeading: 'Actions',
-        exportButton: 'Export Project',
+        exportButton: 'Export PNG',
         ready: 'Ready. Use the toolbox to add elements.',
         exportSuccess: 'Project exported successfully.',
         exportUnavailable: 'Unable to export the project right now.',
         errorKonva: 'The drawing library is not available. Please refresh the page.',
         cursorStatus: 'Cursor: %x% × %y% m',
         selectedStatus: 'Selected %name% - %width%m × %height%m',
-        toolWall: 'Wall (Rectangle)',
-        toolWindow: 'Window (Circle)',
-        toolBeam: 'Beam (Line)',
-        toolDimension: 'Dimension Label',
+        cottageLabel: 'Cottage %width%m × %depth%m',
+        noCottages: 'No cottages configured yet.',
         designCanvas: 'Design Canvas',
         toolbox: 'Toolbox'
     };
@@ -36,99 +34,57 @@
             canvasWidth: normalized.canvasWidth || 0,
             canvasHeight: normalized.canvasHeight || 0,
             exportFileName: normalized.exportFileName || 'wood-house-project',
+            exportDpi: normalized.exportDpi && normalized.exportDpi > 0 ? normalized.exportDpi : 150,
+            casette: Array.isArray(normalized.casette) ? normalized.casette : [],
             appVersion: normalized.appVersion || '1.0.0',
             strings: strings
         };
     }
 
-    function getToolsConfig(config) {
-        return [
-            {
-                id: 'wall',
-                label: config.strings.toolWall,
-                factory: function (options) {
-                    const gridSize = options.gridSize;
+    function getCottagesConfig(config) {
+        const templates = Array.isArray(config.casette) ? config.casette : [];
+        const items = [];
+        const labelTemplate = config.strings.cottageLabel || DEFAULT_STRINGS.cottageLabel;
+        const gridSize = config.gridSize || 50;
+        const scaleRatio = config.scaleRatio || 1;
+
+        for (let index = 0; index < templates.length; index++) {
+            const raw = templates[index] || {};
+            const width = parseFloat(raw.width);
+            const depth = parseFloat(raw.depth);
+
+            if (!width || width <= 0 || !depth || depth <= 0) {
+                continue;
+            }
+
+            const pixelsPerMeter = gridSize / (scaleRatio || 1);
+            const widthPx = width * pixelsPerMeter;
+            const depthPx = depth * pixelsPerMeter;
+            const replacements = {
+                width: String(parseFloat(width.toFixed(2))),
+                depth: String(parseFloat(depth.toFixed(2)))
+            };
+
+            items.push({
+                id: 'cottage-' + index,
+                label: formatTemplate(labelTemplate, replacements),
+                factory: function () {
                     return new Konva.Rect({
                         x: gridSize * 2,
                         y: gridSize * 2,
-                        width: gridSize * 3,
-                        height: gridSize,
+                        width: widthPx,
+                        height: depthPx,
                         fill: 'rgba(66, 153, 225, 0.25)',
                         stroke: '#2b6cb0',
                         strokeWidth: 2,
                         draggable: true,
-                        name: 'wall'
+                        name: 'cottage'
                     });
                 }
-            },
-            {
-                id: 'window',
-                label: config.strings.toolWindow,
-                factory: function (options) {
-                    const gridSize = options.gridSize;
-                    return new Konva.Circle({
-                        x: gridSize * 3,
-                        y: gridSize * 3,
-                        radius: gridSize / 2,
-                        fill: 'rgba(236, 201, 75, 0.35)',
-                        stroke: '#d69e2e',
-                        strokeWidth: 2,
-                        draggable: true,
-                        name: 'window'
-                    });
-                }
-            },
-            {
-                id: 'beam',
-                label: config.strings.toolBeam,
-                factory: function (options) {
-                    const gridSize = options.gridSize;
-                    return new Konva.Line({
-                        points: [gridSize, gridSize, gridSize * 4, gridSize * 2],
-                        stroke: '#805ad5',
-                        strokeWidth: 4,
-                        lineCap: 'round',
-                        lineJoin: 'round',
-                        draggable: true,
-                        name: 'beam'
-                    });
-                }
-            },
-            {
-                id: 'dimension',
-                label: config.strings.toolDimension,
-                factory: function (options) {
-                    const gridSize = options.gridSize;
-                    const group = new Konva.Group({
-                        x: gridSize * 2,
-                        y: gridSize * 4,
-                        draggable: true,
-                        name: 'dimension'
-                    });
+            });
+        }
 
-                    const line = new Konva.Line({
-                        points: [0, 0, gridSize * 2, 0],
-                        stroke: '#1a202c',
-                        strokeWidth: 2
-                    });
-
-                    const text = new Konva.Text({
-                        x: gridSize,
-                        y: -14,
-                        text: '',
-                        fontSize: 14,
-                        fill: '#1a202c',
-                        align: 'center'
-                    });
-                    text.offsetX(text.width() / 2);
-
-                    group.add(line);
-                    group.add(text);
-
-                    return group;
-                }
-            }
-        ];
+        return items;
     }
 
     function drawGrid(layer, width, height, gridSize, scaleRatio) {
@@ -233,24 +189,11 @@
         }
     }
 
-    function downloadFile(filename, data) {
-        const blob = new Blob([data], { type: 'application/json' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(function () {
-            URL.revokeObjectURL(link.href);
-        }, 2000);
-    }
-
     function WoodHouseDesignerApp(props) {
         const configRef = useRef(buildConfig(props.initialConfig));
         const config = configRef.current;
-        const toolsRef = useRef(getToolsConfig(config));
-        const tools = toolsRef.current;
+        const cottagesRef = useRef(getCottagesConfig(config));
+        const cottages = cottagesRef.current;
 
         const stageContainerRef = useRef(null);
         const stageRef = useRef(null);
@@ -440,25 +383,23 @@
             }
 
             const stage = stageRef.current;
-            const json = stage.toJSON();
-            const metadata = {
-                version: config.appVersion,
-                generatedAt: new Date().toISOString(),
-                scaleRatio: config.scaleRatio,
-                gridSize: config.gridSize,
-                canvas: {
-                    width: stage.width(),
-                    height: stage.height()
-                }
-            };
-
-            const payload = JSON.stringify({
-                metadata: metadata,
-                stage: JSON.parse(json)
-            }, null, 2);
-
-            downloadFile((config.exportFileName || 'wood-house-project') + '.json', payload);
-            updateStatus(config.strings.exportSuccess);
+            try {
+                const dpi = config.exportDpi && config.exportDpi > 0 ? config.exportDpi : 150;
+                const pixelRatio = Math.max(1, dpi / 96);
+                const dataUrl = stage.toDataURL({ mimeType: 'image/png', pixelRatio: pixelRatio });
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                link.download = (config.exportFileName || 'wood-house-project') + '.png';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                updateStatus(config.strings.exportSuccess);
+            } catch (error) {
+                /* eslint-disable no-console */
+                console.error(error);
+                /* eslint-enable no-console */
+                updateStatus(config.strings.exportUnavailable);
+            }
         }, [config, updateStatus]);
 
         return el(
@@ -482,23 +423,25 @@
                         el(
                             'ul',
                             { className: 'whd-tools__list' },
-                            tools.map(function (tool) {
-                                return el(
-                                    'li',
-                                    { key: tool.id },
-                                    el(
-                                        'button',
-                                        {
-                                            type: 'button',
-                                            className: 'whd-tool-button',
-                                            onClick: function () {
-                                                handleToolClick(tool);
-                                            }
-                                        },
-                                        tool.label
-                                    )
-                                );
-                            })
+                            cottages.length === 0
+                                ? el('li', { className: 'whd-tools__empty', key: 'empty' }, config.strings.noCottages)
+                                : cottages.map(function (tool) {
+                                      return el(
+                                          'li',
+                                          { key: tool.id },
+                                          el(
+                                              'button',
+                                              {
+                                                  type: 'button',
+                                                  className: 'whd-tool-button',
+                                                  onClick: function () {
+                                                      handleToolClick(tool);
+                                                  }
+                                              },
+                                              tool.label
+                                          )
+                                      );
+                                  })
                         )
                     ),
                     el(

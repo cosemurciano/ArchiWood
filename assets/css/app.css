@@ -108,6 +108,23 @@
     gap: 0.5rem;
 }
 
+.whd-tools__list--grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.whd-cottage-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.whd-cottage-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
 .whd-tools__empty {
     font-style: italic;
     color: #4a5568;
@@ -115,20 +132,72 @@
 }
 
 .whd-tool-button {
-    padding: 0.5rem 0.75rem;
+    padding: 0.75rem;
     border: 1px solid var(--whd-border);
     background: #fdfdfd;
-    border-radius: 4px;
+    border-radius: 10px;
     cursor: pointer;
-    text-align: left;
-    transition: background 0.2s, box-shadow 0.2s;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 8.5rem;
+    justify-content: space-between;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .whd-tool-button:hover,
 .whd-tool-button:focus {
     background: #edf2f7;
-    box-shadow: 0 0 0 3px rgba(47, 133, 90, 0.25);
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+    transform: translateY(-2px);
     outline: none;
+}
+
+.whd-tool-button:focus-visible {
+    box-shadow: 0 0 0 3px rgba(47, 133, 90, 0.35);
+}
+
+.whd-tool-button--admin {
+    background: linear-gradient(160deg, #eff6ff 0%, #dbeafe 100%);
+    border-color: #60a5fa;
+}
+
+.whd-tool-button--user {
+    background: linear-gradient(160deg, #fef3c7 0%, #fde68a 100%);
+    border-color: #f59e0b;
+}
+
+.whd-tool-button__icon {
+    font-size: 1.75rem;
+    line-height: 1;
+}
+
+.whd-tool-button__label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--whd-text);
+}
+
+.whd-tool-button__dims {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    background: rgba(255, 255, 255, 0.7);
+    color: #1a202c;
+    padding: 0.35rem 0.5rem;
+    border-radius: 999px;
+}
+
+.whd-tool-button__dims-item {
+    font-variant-numeric: tabular-nums;
+}
+
+.whd-tool-button__dims-separator {
+    opacity: 0.6;
 }
 
 .whd-custom-form {
@@ -210,6 +279,95 @@
     font-size: 0.8rem;
 }
 
+.whd-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.whd-modal__overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    pointer-events: auto;
+}
+
+.whd-modal__dialog {
+    position: relative;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+    padding: 1.5rem;
+    width: min(90vw, 360px);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    pointer-events: auto;
+}
+
+.whd-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.whd-modal__title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--whd-text);
+}
+
+.whd-modal__close {
+    border: none;
+    background: transparent;
+    font-size: 1.25rem;
+    cursor: pointer;
+    line-height: 1;
+    color: #4a5568;
+}
+
+.whd-modal__close:hover,
+.whd-modal__close:focus {
+    color: var(--whd-primary);
+    outline: none;
+}
+
+.whd-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #2d3748;
+}
+
+.whd-modal__text {
+    margin: 0;
+}
+
+.whd-modal__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.whd-modal__delete {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+}
+
+.whd-modal__delete:hover,
+.whd-modal__delete:focus {
+    background: #b91c1c;
+    border-color: #b91c1c;
+    color: #fff;
+}
+
 @media (max-width: 1024px) {
     .whd-body {
         flex-direction: column;
@@ -225,6 +383,10 @@
         gap: 1rem;
     }
 
+    .whd-tools__list--grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .whd-canvas {
         flex-basis: auto;
         min-height: 400px;
@@ -234,6 +396,10 @@
 @media (max-width: 600px) {
     .whd-tools {
         flex-direction: column;
+    }
+
+    .whd-tools__list--grid {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
     }
 }
 

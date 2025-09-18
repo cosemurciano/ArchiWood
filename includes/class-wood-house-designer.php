@@ -148,6 +148,14 @@ if ( ! class_exists( 'Wood_House_Designer' ) ) {
                         'addPolygonButton' => esc_html__( 'Add polygon', 'wood-house-designer' ),
                         'invalidPolygon'   => esc_html__( 'Please provide valid values for sides and dimensions.', 'wood-house-designer' ),
                         'customAdded'      => esc_html__( 'Custom cottage added to toolbox.', 'wood-house-designer' ),
+                        'adminCottagesTitle' => esc_html__( 'Catalog cottages', 'wood-house-designer' ),
+                        'userCottagesTitle'  => esc_html__( 'Your cottages', 'wood-house-designer' ),
+                        'toolsMenuTitle'     => esc_html__( 'Cottage tools', 'wood-house-designer' ),
+                        'toolsDimensionsLabel'=> esc_html__( 'Dimensions', 'wood-house-designer' ),
+                        'toolsPositionLabel'  => esc_html__( 'Grid position', 'wood-house-designer' ),
+                        'toolsDelete'        => esc_html__( 'Delete cottage', 'wood-house-designer' ),
+                        'toolsClose'         => esc_html__( 'Close', 'wood-house-designer' ),
+                        'toolsRemoved'       => esc_html__( 'Cottage removed.', 'wood-house-designer' ),
                     ),
                 )
             );

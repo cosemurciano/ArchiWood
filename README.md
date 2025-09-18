@@ -4,7 +4,7 @@ WordPress plugin that powers an interactive Konva.js canvas to design custom woo
 
 ## Plugin Setup
 
-1. Copy the `wp-content/plugins/wood-house-designer` directory into your WordPress installation.
+1. Copy the `wood-house-designer` directory into your WordPress installation under `wp-content/plugins/`.
 2. Activate **Wood House Designer** from the WordPress Plugins page.
 3. Configure the default grid size, scale ratio and canvas size from **Settings → Wood House Designer**.
 4. Create a page and either:
@@ -20,4 +20,4 @@ WordPress plugin that powers an interactive Konva.js canvas to design custom woo
 
 ## Development
 
-Assets live under `assets/css` and `assets/js`. The plugin bootstrap file is `wood-house-designer.php` inside the plugin directory.
+Assets live under `wood-house-designer/assets/css` and `wood-house-designer/assets/js`. The plugin bootstrap file is `wood-house-designer/wood-house-designer.php`.

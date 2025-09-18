@@ -23,14 +23,45 @@
     color: #fff;
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 0 1.5rem;
     box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+    gap: 1rem;
 }
 
 .whd-header__title {
     font-size: 1.25rem;
     margin: 0;
     letter-spacing: 0.05em;
+}
+
+.whd-view-toggle {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.whd-view-toggle__button {
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.whd-view-toggle__button:hover,
+.whd-view-toggle__button:focus {
+    background: rgba(255, 255, 255, 0.25);
+    outline: none;
+}
+
+.whd-view-toggle__button--active {
+    background: #fff;
+    color: var(--whd-primary);
+    border-color: #fff;
 }
 
 .whd-body {

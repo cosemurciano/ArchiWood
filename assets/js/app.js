@@ -5,7 +5,16 @@
         return;
     }
 
-    const { createElement: el, render, useCallback, useEffect, useRef, useState } = wp.element;
+    const {
+        createElement: el,
+        render,
+        useCallback,
+        useEffect,
+        useMemo,
+        useRef,
+        useState,
+        Fragment
+    } = wp.element;
 
     const DEFAULT_STRINGS = {
         appTitle: 'Wood House Designer',
@@ -33,12 +42,122 @@
         heightLabel: 'Height (m)',
         addPolygonButton: 'Add polygon',
         invalidPolygon: 'Please provide valid values for sides and dimensions.',
-        customAdded: 'Custom cottage added to toolbox.'
+        customAdded: 'Custom cottage added to toolbox.',
+        adminCottagesTitle: 'Catalog cottages',
+        userCottagesTitle: 'Your cottages',
+        toolsMenuTitle: 'Cottage tools',
+        toolsDimensionsLabel: 'Dimensions',
+        toolsPositionLabel: 'Grid position',
+        toolsDelete: 'Delete cottage',
+        toolsClose: 'Close',
+        toolsRemoved: 'Cottage removed.'
     };
 
     const ISO_ANGLE = Math.PI / 6;
     const ISO_COS = Math.cos(ISO_ANGLE);
     const ISO_SIN = Math.sin(ISO_ANGLE);
+    const CONTROL_BUTTON_SIZE = 24;
+
+    function snapPosition(position, gridSize) {
+        const size = gridSize > 0 ? gridSize : 1;
+        return {
+            x: Math.round(position.x / size) * size,
+            y: Math.round(position.y / size) * size
+        };
+    }
+
+    function computeBoundsFromPoints(points) {
+        if (!Array.isArray(points) || points.length < 2) {
+            return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+        }
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        for (let index = 0; index < points.length; index += 2) {
+            const x = points[index];
+            const y = points[index + 1];
+
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+
+        return {
+            minX: minX === Infinity ? 0 : minX,
+            minY: minY === Infinity ? 0 : minY,
+            maxX: maxX === -Infinity ? 0 : maxX,
+            maxY: maxY === -Infinity ? 0 : maxY
+        };
+    }
+
+    function ensureControlButton(group, parent, view) {
+        if (!parent || typeof parent.add !== 'function') {
+            return null;
+        }
+
+        const className = 'whd-control-button-' + view;
+        const existing = parent.findOne('.' + className);
+        if (existing) {
+            return existing;
+        }
+
+        const button = new Konva.Group({
+            name: 'whd-control-button ' + className,
+            listening: true
+        });
+
+        const background = new Konva.Rect({
+            width: CONTROL_BUTTON_SIZE,
+            height: CONTROL_BUTTON_SIZE,
+            cornerRadius: 6,
+            fill: 'rgba(30, 41, 59, 0.92)'
+        });
+
+        const icon = new Konva.Text({
+            text: '⋮',
+            fontSize: 16,
+            fontStyle: 'bold',
+            fill: '#ffffff',
+            width: CONTROL_BUTTON_SIZE,
+            align: 'center'
+        });
+        icon.y((CONTROL_BUTTON_SIZE - icon.height()) / 2 - 1);
+
+        button.add(background);
+        button.add(icon);
+
+        button.on('click tap', function (evt) {
+            evt.cancelBubble = true;
+            group.fire('whd:open-tools', { target: group });
+        });
+
+        button.on('mousedown touchstart', function (evt) {
+            evt.cancelBubble = true;
+        });
+
+        button.on('mouseenter', function () {
+            const stage = group.getStage();
+            if (stage && stage.container()) {
+                stage.container().style.cursor = 'pointer';
+            }
+        });
+
+        button.on('mouseleave', function () {
+            const stage = group.getStage();
+            if (stage && stage.container()) {
+                stage.container().style.cursor = '';
+            }
+        });
+
+        parent.add(button);
+        button.moveToTop();
+
+        return button;
+    }
 
     function projectIsometric(x, y, z) {
         return {
@@ -84,6 +203,18 @@
             shifted[key].y -= baseY;
         });
 
+        const outline = [
+            shifted.backLeftTop.x, shifted.backLeftTop.y,
+            shifted.backRightTop.x, shifted.backRightTop.y,
+            shifted.frontRightTop.x, shifted.frontRightTop.y,
+            shifted.frontRightBottom.x, shifted.frontRightBottom.y,
+            shifted.frontLeftBottom.x, shifted.frontLeftBottom.y,
+            shifted.frontLeftTop.x, shifted.frontLeftTop.y,
+            shifted.backLeftTop.x, shifted.backLeftTop.y,
+            shifted.backLeftBottom.x, shifted.backLeftBottom.y,
+            shifted.backRightBottom.x, shifted.backRightBottom.y
+        ];
+
         return {
             top: [
                 shifted.backLeftTop.x, shifted.backLeftTop.y,
@@ -103,17 +234,8 @@
                 shifted.frontRightBottom.x, shifted.frontRightBottom.y,
                 shifted.backRightBottom.x, shifted.backRightBottom.y
             ],
-            outline: [
-                shifted.backLeftTop.x, shifted.backLeftTop.y,
-                shifted.backRightTop.x, shifted.backRightTop.y,
-                shifted.frontRightTop.x, shifted.frontRightTop.y,
-                shifted.frontRightBottom.x, shifted.frontRightBottom.y,
-                shifted.frontLeftBottom.x, shifted.frontLeftBottom.y,
-                shifted.frontLeftTop.x, shifted.frontLeftTop.y,
-                shifted.backLeftTop.x, shifted.backLeftTop.y,
-                shifted.backLeftBottom.x, shifted.backLeftBottom.y,
-                shifted.backRightBottom.x, shifted.backRightBottom.y
-            ]
+            outline: outline,
+            bounds: computeBoundsFromPoints(outline)
         };
     }
 
@@ -217,7 +339,8 @@
         return {
             top: top,
             sides: sides,
-            outline: outline
+            outline: outline,
+            bounds: computeBoundsFromPoints(outline)
         };
     }
 
@@ -311,14 +434,26 @@
                     })
                 );
             }
+
+            const topButton = ensureControlButton(group, topView, 'top');
+            if (topButton) {
+                const buttonX = Math.max(4, widthPx - CONTROL_BUTTON_SIZE - 4);
+                topButton.position({
+                    x: buttonX,
+                    y: 4
+                });
+                topButton.moveToTop();
+            }
         }
 
         const isoGroup = group.findOne('.whd-iso-view');
         if (isoGroup) {
             isoGroup.destroyChildren();
+            let isoBounds = null;
 
             if (sides === 4) {
                 const geometry = buildIsometricRectangleGeometry(widthPx, depthPx, heightPx);
+                isoBounds = geometry.bounds;
 
                 isoGroup.add(
                     new Konva.Line({
@@ -365,6 +500,7 @@
             } else {
                 const polygonPoints = buildRegularPolygonPoints(sides, widthPx, depthPx);
                 const geometry = buildIsometricPolygonGeometry(polygonPoints, heightPx);
+                isoBounds = geometry.bounds;
 
                 isoGroup.add(
                     new Konva.Line({
@@ -402,6 +538,14 @@
                     })
                 );
             }
+
+            const isoButton = ensureControlButton(group, isoGroup, 'iso');
+            if (isoButton && isoBounds) {
+                const buttonX = Math.max(4, isoBounds.maxX - CONTROL_BUTTON_SIZE - 4);
+                const buttonY = Math.max(4, isoBounds.minY + 4);
+                isoButton.position({ x: buttonX, y: buttonY });
+                isoButton.moveToTop();
+            }
         }
     }
 
@@ -427,6 +571,9 @@
             x: gridSize * 2,
             y: gridSize * 2,
             draggable: true,
+            dragBoundFunc: function (pos) {
+                return snapPosition(pos, gridSize);
+            },
             name: 'cottage whd-draggable'
         });
 
@@ -502,6 +649,12 @@
             items.push({
                 id: 'cottage-' + index,
                 label: formatTemplate(labelTemplate, replacements),
+                dimensions: {
+                    width: width,
+                    depth: depth,
+                    height: heightMeters
+                },
+                origin: 'admin',
                 factory: function (options) {
                     const currentGrid = options && options.gridSize ? options.gridSize : gridSize;
                     const currentScale = options && options.scaleRatio ? options.scaleRatio : scaleRatio;
@@ -557,12 +710,16 @@
                 }));
             }
 
-            for (let h = 0; h <= Math.ceil(height / tileHeight); h++) {
+            const maxHorizontal = Math.ceil(height / tileHeight);
+            const middleIndex = Math.round(maxHorizontal / 2);
+            for (let h = 0; h <= maxHorizontal; h++) {
                 const y = offsetY + h * tileHeight;
+                const isMajor = h % majorEvery === 0;
+                const isMiddle = h === middleIndex;
                 elements.push(new Konva.Line({
                     points: [0, y, width, y],
-                    stroke: h % majorEvery === 0 ? majorColor : minorColor,
-                    strokeWidth: h % majorEvery === 0 ? 1 : 0.5
+                    stroke: isMiddle ? '#edf2f7' : isMajor ? majorColor : minorColor,
+                    strokeWidth: isMiddle ? 0.25 : isMajor ? 1 : 0.5
                 }));
             }
         } else {
@@ -677,9 +834,10 @@
     function WoodHouseDesignerApp(props) {
         const configRef = useRef(buildConfig(props.initialConfig));
         const config = configRef.current;
-        const [cottages, setCottages] = useState(function () {
+        const [adminCottages] = useState(function () {
             return getCottagesConfig(config);
         });
+        const [userCottages, setUserCottages] = useState([]);
 
         const stageContainerRef = useRef(null);
         const stageRef = useRef(null);
@@ -697,6 +855,7 @@
         const [customDepth, setCustomDepth] = useState('');
         const [customHeight, setCustomHeight] = useState('');
         const [customError, setCustomError] = useState('');
+        const [toolsModal, setToolsModal] = useState(null);
 
         const updateStatus = useCallback(function (message) {
             if (statusRef.current === message) {
@@ -706,6 +865,70 @@
             statusRef.current = message;
             setStatus(message);
         }, []);
+
+        const handleOpenToolsModal = useCallback(
+            function (node) {
+                if (!node) {
+                    return;
+                }
+
+                const dimensions = node.getAttr('whdDimensions');
+                let widthMeters = 0;
+                let depthMeters = 0;
+                let heightMeters = 0;
+
+                if (dimensions) {
+                    widthMeters = parseFloat((dimensions.widthMeters || 0).toFixed(2));
+                    depthMeters = parseFloat((dimensions.depthMeters || 0).toFixed(2));
+                    heightMeters = parseFloat((dimensions.heightMeters || 0).toFixed(2));
+                }
+
+                const snappedPosition = snapPosition(node.position(), config.gridSize);
+                const positionMeters = {
+                    x: parseFloat(((snappedPosition.x / config.gridSize) * config.scaleRatio).toFixed(2)),
+                    y: parseFloat(((snappedPosition.y / config.gridSize) * config.scaleRatio).toFixed(2))
+                };
+
+                setToolsModal({
+                    node: node,
+                    dimensions: {
+                        width: widthMeters,
+                        depth: depthMeters,
+                        height: heightMeters
+                    },
+                    position: positionMeters
+                });
+            },
+            [config]
+        );
+
+        const handleCloseToolsModal = useCallback(function () {
+            setToolsModal(null);
+        }, []);
+
+        const handleDeleteNode = useCallback(
+            function () {
+                if (!toolsModal || !toolsModal.node) {
+                    setToolsModal(null);
+                    return;
+                }
+
+                const node = toolsModal.node;
+                node.destroy();
+
+                if (drawingLayerRef.current) {
+                    drawingLayerRef.current.batchDraw();
+                }
+
+                if (transformerRef.current && transformerRef.current.nodes().includes(node)) {
+                    transformerRef.current.nodes([]);
+                }
+
+                setToolsModal(null);
+                updateStatus(config.strings.toolsRemoved || config.strings.ready);
+            },
+            [config, toolsModal, updateStatus]
+        );
 
         useEffect(function () {
             const container = stageContainerRef.current;
@@ -741,11 +964,8 @@
 
             const transformer = new Konva.Transformer({
                 rotateEnabled: true,
-                enabledAnchors: [
-                    'top-left', 'top-center', 'top-right',
-                    'middle-left', 'middle-right',
-                    'bottom-left', 'bottom-center', 'bottom-right'
-                ]
+                resizeEnabled: false,
+                enabledAnchors: []
             });
 
             drawingLayer.add(transformer);
@@ -882,62 +1102,81 @@
             }
         }, [config, updateStatus, viewMode]);
 
-        const handleToolClick = useCallback(function (tool) {
-            if (!drawingLayerRef.current || !transformerRef.current) {
-                return;
-            }
-
-            const node = tool.factory({
-                gridSize: config.gridSize,
-                scaleRatio: config.scaleRatio
-            });
-
-            if (!node) {
-                return;
-            }
-
-            updateIsometricGeometry(node, config);
-            applyViewModeToNode(node, viewModeRef.current);
-
-            node.on('dragmove transform', function () {
-                updateDimensionLabel(node, config);
-                if (transformerRef.current && transformerRef.current.nodes().includes(node)) {
-                    updateStatus(getDimensions(node, config));
-                }
-            });
-
-            node.on('transformend', function () {
-                const dims = node.getAttr('whdDimensions');
-                if (!dims) {
+        const handleToolClick = useCallback(
+            function (tool) {
+                if (!drawingLayerRef.current || !transformerRef.current) {
                     return;
                 }
 
-                const scaleX = node.scaleX() || 1;
-                const scaleY = node.scaleY() || 1;
-                const newDimensions = {
-                    widthMeters: parseFloat((dims.widthMeters * scaleX).toFixed(2)),
-                    depthMeters: parseFloat((dims.depthMeters * scaleY).toFixed(2)),
-                    heightMeters: dims.heightMeters
-                };
+                const node = tool.factory({
+                    gridSize: config.gridSize,
+                    scaleRatio: config.scaleRatio
+                });
 
-                node.setAttr('whdDimensions', newDimensions);
-                node.scale({ x: 1, y: 1 });
+                if (!node) {
+                    return;
+                }
+
                 updateIsometricGeometry(node, config);
+                applyViewModeToNode(node, viewModeRef.current);
+
+                node.on('dragmove transform', function () {
+                    updateDimensionLabel(node, config);
+                    if (transformerRef.current && transformerRef.current.nodes().includes(node)) {
+                        updateStatus(getDimensions(node, config));
+                    }
+                });
+
+                node.on('dragend', function () {
+                    const snapped = snapPosition(node.position(), config.gridSize);
+                    node.position(snapped);
+                    if (drawingLayerRef.current) {
+                        drawingLayerRef.current.batchDraw();
+                    }
+                    updateDimensionLabel(node, config);
+                    if (transformerRef.current && transformerRef.current.nodes().includes(node)) {
+                        updateStatus(getDimensions(node, config));
+                    }
+                });
+
+                node.on('transformend', function () {
+                    const dims = node.getAttr('whdDimensions');
+                    if (!dims) {
+                        return;
+                    }
+
+                    const scaleX = node.scaleX() || 1;
+                    const scaleY = node.scaleY() || 1;
+                    const newDimensions = {
+                        widthMeters: parseFloat((dims.widthMeters * scaleX).toFixed(2)),
+                        depthMeters: parseFloat((dims.depthMeters * scaleY).toFixed(2)),
+                        heightMeters: dims.heightMeters
+                    };
+
+                    node.setAttr('whdDimensions', newDimensions);
+                    node.scale({ x: 1, y: 1 });
+                    updateIsometricGeometry(node, config);
+                    updateStatus(getDimensions(node, config));
+                });
+
+                node.on('whd:open-tools', function () {
+                    handleOpenToolsModal(node);
+                });
+
+                if (drawingLayerRef.current) {
+                    drawingLayerRef.current.add(node);
+                    drawingLayerRef.current.draw();
+                }
+
+                if (transformerRef.current) {
+                    transformerRef.current.nodes([node]);
+                }
+
+                updateDimensionLabel(node, config);
                 updateStatus(getDimensions(node, config));
-            });
-
-            if (drawingLayerRef.current) {
-                drawingLayerRef.current.add(node);
-                drawingLayerRef.current.draw();
-            }
-
-            if (transformerRef.current) {
-                transformerRef.current.nodes([node]);
-            }
-
-            updateDimensionLabel(node, config);
-            updateStatus(getDimensions(node, config));
-        }, [config, updateStatus]);
+            },
+            [config, handleOpenToolsModal, updateStatus]
+        );
 
         const handleAddCustomPolygon = useCallback(
             function (event) {
@@ -978,6 +1217,12 @@
                 const tool = {
                     id: 'custom-' + Date.now(),
                     label: label,
+                    origin: 'user',
+                    dimensions: {
+                        width: widthMeters,
+                        depth: depthMeters,
+                        height: heightMeters
+                    },
                     factory: function (options) {
                         const currentGrid = options && options.gridSize ? options.gridSize : config.gridSize;
                         const currentScale = options && options.scaleRatio ? options.scaleRatio : config.scaleRatio;
@@ -992,7 +1237,7 @@
                     }
                 };
 
-                setCottages(function (previous) {
+                setUserCottages(function (previous) {
                     return previous.concat(tool);
                 });
                 setCustomWidth('');
@@ -1029,196 +1274,320 @@
             }
         }, [config, updateStatus]);
 
+        function renderCottageList(items, variant) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return [
+                    el('li', { className: 'whd-tools__empty', key: variant + '-empty' }, config.strings.noCottages)
+                ];
+            }
+
+            return items.map(function (tool) {
+                const dimensions = tool.dimensions || {};
+                let widthValue = Number.isFinite(dimensions.width) ? dimensions.width : parseFloat(dimensions.width);
+                let depthValue = Number.isFinite(dimensions.depth) ? dimensions.depth : parseFloat(dimensions.depth);
+                let heightValue = Number.isFinite(dimensions.height) ? dimensions.height : parseFloat(dimensions.height);
+
+                widthValue = Number.isFinite(widthValue) ? widthValue : 0;
+                depthValue = Number.isFinite(depthValue) ? depthValue : 0;
+                heightValue = Number.isFinite(heightValue) ? heightValue : 0;
+
+                const className = 'whd-tool-button whd-tool-button--' + variant;
+
+                return el(
+                    'li',
+                    { key: tool.id },
+                    el(
+                        'button',
+                        {
+                            type: 'button',
+                            className: className,
+                            onClick: function () {
+                                handleToolClick(tool);
+                            },
+                            'aria-label': tool.label
+                        },
+                        el('span', { className: 'whd-tool-button__icon', 'aria-hidden': 'true' }, '🏠'),
+                        el('span', { className: 'whd-tool-button__label' }, tool.label),
+                        el(
+                            'span',
+                            { className: 'whd-tool-button__dims' },
+                            el('span', { className: 'whd-tool-button__dims-item' }, widthValue.toFixed(2) + ' m'),
+                            el('span', { className: 'whd-tool-button__dims-separator', 'aria-hidden': 'true' }, '×'),
+                            el('span', { className: 'whd-tool-button__dims-item' }, depthValue.toFixed(2) + ' m'),
+                            el('span', { className: 'whd-tool-button__dims-separator', 'aria-hidden': 'true' }, '×'),
+                            el('span', { className: 'whd-tool-button__dims-item' }, heightValue.toFixed(2) + ' m')
+                        )
+                    )
+                );
+            });
+        }
+
         return el(
-            'div',
-            { className: 'whd-app', 'data-app-version': config.appVersion },
+            Fragment,
+            null,
             el(
                 'div',
-                { className: 'whd-header' },
-                el('h1', { className: 'whd-header__title' }, config.strings.appTitle),
+                { className: 'whd-app', 'data-app-version': config.appVersion },
                 el(
                     'div',
-                    { className: 'whd-view-toggle', role: 'group', 'aria-label': config.strings.viewToggleLabel },
-                    el(
-                        'button',
-                        {
-                            type: 'button',
-                            className: 'whd-view-toggle__button' + (viewMode === 'top' ? ' whd-view-toggle__button--active' : ''),
-                            onClick: function () {
-                                setViewMode('top');
-                            }
-                        },
-                        config.strings.viewTop
-                    ),
-                    el(
-                        'button',
-                        {
-                            type: 'button',
-                            className: 'whd-view-toggle__button' + (viewMode === 'iso' ? ' whd-view-toggle__button--active' : ''),
-                            onClick: function () {
-                                setViewMode('iso');
-                            }
-                        },
-                        config.strings.viewIso
-                    )
-                )
-            ),
-            el(
-                'div',
-                { className: 'whd-body' },
-                el(
-                    'aside',
-                    { className: 'whd-tools', 'aria-label': config.strings.toolbox },
+                    { className: 'whd-header' },
+                    el('h1', { className: 'whd-header__title' }, config.strings.appTitle),
                     el(
                         'div',
-                        { className: 'whd-tools__section' },
-                        el('h2', { className: 'whd-tools__title' }, config.strings.shapesHeading),
-                        el(
-                            'ul',
-                            { className: 'whd-tools__list' },
-                            cottages.length === 0
-                                ? el('li', { className: 'whd-tools__empty', key: 'empty' }, config.strings.noCottages)
-                                : cottages.map(function (tool) {
-                                      return el(
-                                          'li',
-                                          { key: tool.id },
-                                          el(
-                                              'button',
-                                              {
-                                                  type: 'button',
-                                                  className: 'whd-tool-button',
-                                                  onClick: function () {
-                                                      handleToolClick(tool);
-                                                  }
-                                              },
-                                              tool.label
-                                          )
-                                      );
-                                  })
-                        )
-                    ),
-                    el(
-                        'div',
-                        { className: 'whd-tools__section' },
-                        el('h3', { className: 'whd-tools__subtitle' }, config.strings.customHeading),
-                        el(
-                            'form',
-                            {
-                                className: 'whd-custom-form',
-                                onSubmit: handleAddCustomPolygon
-                            },
-                            el(
-                                'label',
-                                { className: 'whd-field' },
-                                el('span', { className: 'whd-field__label' }, config.strings.sidesLabel),
-                                el('input', {
-                                    className: 'whd-field__input',
-                                    type: 'number',
-                                    min: 3,
-                                    value: customSides,
-                                    onChange: function (event) {
-                                        setCustomSides(event.target.value);
-                                        setCustomError('');
-                                    }
-                                })
-                            ),
-                            el(
-                                'label',
-                                { className: 'whd-field' },
-                                el('span', { className: 'whd-field__label' }, config.strings.widthLabel),
-                                el('input', {
-                                    className: 'whd-field__input',
-                                    type: 'number',
-                                    min: 0.1,
-                                    step: 0.1,
-                                    value: customWidth,
-                                    onChange: function (event) {
-                                        setCustomWidth(event.target.value);
-                                        setCustomError('');
-                                    }
-                                })
-                            ),
-                            el(
-                                'label',
-                                { className: 'whd-field' },
-                                el('span', { className: 'whd-field__label' }, config.strings.depthLabel),
-                                el('input', {
-                                    className: 'whd-field__input',
-                                    type: 'number',
-                                    min: 0.1,
-                                    step: 0.1,
-                                    value: customDepth,
-                                    onChange: function (event) {
-                                        setCustomDepth(event.target.value);
-                                        setCustomError('');
-                                    }
-                                })
-                            ),
-                            el(
-                                'label',
-                                { className: 'whd-field' },
-                                el('span', { className: 'whd-field__label' }, config.strings.heightLabel),
-                                el('input', {
-                                    className: 'whd-field__input',
-                                    type: 'number',
-                                    min: 0.1,
-                                    step: 0.1,
-                                    value: customHeight,
-                                    onChange: function (event) {
-                                        setCustomHeight(event.target.value);
-                                        setCustomError('');
-                                    }
-                                })
-                            ),
-                            customError
-                                ? el(
-                                      'div',
-                                      { className: 'whd-field__error', role: 'alert' },
-                                      customError
-                                  )
-                                : null,
-                            el(
-                                'button',
-                                {
-                                    type: 'submit',
-                                    className: 'button button-secondary whd-custom-form__button'
-                                },
-                                config.strings.addPolygonButton
-                            )
-                        )
-                    ),
-                    el(
-                        'div',
-                        { className: 'whd-tools__section' },
-                        el('h2', { className: 'whd-tools__title' }, config.strings.actionsHeading),
+                        { className: 'whd-view-toggle', role: 'group', 'aria-label': config.strings.viewToggleLabel },
                         el(
                             'button',
                             {
-                                className: 'button button-primary',
                                 type: 'button',
-                                onClick: handleExport
+                                className: 'whd-view-toggle__button' + (viewMode === 'top' ? ' whd-view-toggle__button--active' : ''),
+                                onClick: function () {
+                                    setViewMode('top');
+                                }
                             },
-                            config.strings.exportButton
+                            config.strings.viewTop
+                        ),
+                        el(
+                            'button',
+                            {
+                                type: 'button',
+                                className: 'whd-view-toggle__button' + (viewMode === 'iso' ? ' whd-view-toggle__button--active' : ''),
+                                onClick: function () {
+                                    setViewMode('iso');
+                                }
+                            },
+                            config.strings.viewIso
                         )
                     )
                 ),
                 el(
-                    'main',
-                    { className: 'whd-canvas', 'aria-label': config.strings.designCanvas },
-                    el('div', {
-                        id: 'whd-stage-container',
-                        className: 'whd-canvas__stage',
-                        role: 'application',
-                        'aria-live': 'polite',
-                        ref: stageContainerRef
-                    })
+                    'div',
+                    { className: 'whd-body' },
+                    el(
+                        'aside',
+                        { className: 'whd-tools', 'aria-label': config.strings.toolbox },
+                        el(
+                            'div',
+                            { className: 'whd-tools__section' },
+                            el('h2', { className: 'whd-tools__title' }, config.strings.shapesHeading),
+                            el(
+                                'div',
+                                { className: 'whd-cottage-groups' },
+                                el(
+                                    'div',
+                                    { className: 'whd-cottage-group' },
+                                    el('h3', { className: 'whd-tools__subtitle' }, config.strings.adminCottagesTitle),
+                                    el('ul', { className: 'whd-tools__list whd-tools__list--grid' }, renderCottageList(adminCottages, 'admin'))
+                                ),
+                                el(
+                                    'div',
+                                    { className: 'whd-cottage-group' },
+                                    el('h3', { className: 'whd-tools__subtitle' }, config.strings.userCottagesTitle),
+                                    el('ul', { className: 'whd-tools__list whd-tools__list--grid' }, renderCottageList(userCottages, 'user'))
+                                )
+                            )
+                        ),
+                        el(
+                            'div',
+                            { className: 'whd-tools__section' },
+                            el('h3', { className: 'whd-tools__subtitle' }, config.strings.customHeading),
+                            el(
+                                'form',
+                                {
+                                    className: 'whd-custom-form',
+                                    onSubmit: handleAddCustomPolygon
+                                },
+                                el(
+                                    'label',
+                                    { className: 'whd-field' },
+                                    el('span', { className: 'whd-field__label' }, config.strings.sidesLabel),
+                                    el('input', {
+                                        className: 'whd-field__input',
+                                        type: 'number',
+                                        min: 3,
+                                        value: customSides,
+                                        onChange: function (event) {
+                                            setCustomSides(event.target.value);
+                                            setCustomError('');
+                                        }
+                                    })
+                                ),
+                                el(
+                                    'label',
+                                    { className: 'whd-field' },
+                                    el('span', { className: 'whd-field__label' }, config.strings.widthLabel),
+                                    el('input', {
+                                        className: 'whd-field__input',
+                                        type: 'number',
+                                        min: 0.1,
+                                        step: 0.1,
+                                        value: customWidth,
+                                        onChange: function (event) {
+                                            setCustomWidth(event.target.value);
+                                            setCustomError('');
+                                        }
+                                    })
+                                ),
+                                el(
+                                    'label',
+                                    { className: 'whd-field' },
+                                    el('span', { className: 'whd-field__label' }, config.strings.depthLabel),
+                                    el('input', {
+                                        className: 'whd-field__input',
+                                        type: 'number',
+                                        min: 0.1,
+                                        step: 0.1,
+                                        value: customDepth,
+                                        onChange: function (event) {
+                                            setCustomDepth(event.target.value);
+                                            setCustomError('');
+                                        }
+                                    })
+                                ),
+                                el(
+                                    'label',
+                                    { className: 'whd-field' },
+                                    el('span', { className: 'whd-field__label' }, config.strings.heightLabel),
+                                    el('input', {
+                                        className: 'whd-field__input',
+                                        type: 'number',
+                                        min: 0.1,
+                                        step: 0.1,
+                                        value: customHeight,
+                                        onChange: function (event) {
+                                            setCustomHeight(event.target.value);
+                                            setCustomError('');
+                                        }
+                                    })
+                                ),
+                                customError
+                                    ? el(
+                                          'div',
+                                          { className: 'whd-field__error', role: 'alert' },
+                                          customError
+                                      )
+                                    : null,
+                                el(
+                                    'button',
+                                    {
+                                        type: 'submit',
+                                        className: 'button button-secondary whd-custom-form__button'
+                                    },
+                                    config.strings.addPolygonButton
+                                )
+                            )
+                        ),
+                        el(
+                            'div',
+                            { className: 'whd-tools__section' },
+                            el('h2', { className: 'whd-tools__title' }, config.strings.actionsHeading),
+                            el(
+                                'button',
+                                {
+                                    className: 'button button-primary',
+                                    type: 'button',
+                                    onClick: handleExport
+                                },
+                                config.strings.exportButton
+                            )
+                        )
+                    ),
+                    el(
+                        'main',
+                        { className: 'whd-canvas', 'aria-label': config.strings.designCanvas },
+                        el('div', {
+                            id: 'whd-stage-container',
+                            className: 'whd-canvas__stage',
+                            role: 'application',
+                            'aria-live': 'polite',
+                            ref: stageContainerRef
+                        })
+                    )
+                ),
+                el(
+                    'footer',
+                    { className: 'whd-status', role: 'status', 'aria-live': 'polite' },
+                    el('span', null, status)
                 )
             ),
-            el(
-                'footer',
-                { className: 'whd-status', role: 'status', 'aria-live': 'polite' },
-                el('span', null, status)
-            )
+            toolsModal
+                ? el(
+                      'div',
+                      { className: 'whd-modal' },
+                      el('div', { className: 'whd-modal__overlay', onClick: handleCloseToolsModal }),
+                      el(
+                          'div',
+                          {
+                              className: 'whd-modal__dialog',
+                              role: 'dialog',
+                              'aria-modal': 'true',
+                              'aria-label': config.strings.toolsMenuTitle
+                          },
+                          el(
+                              'header',
+                              { className: 'whd-modal__header' },
+                              el('h3', { className: 'whd-modal__title' }, config.strings.toolsMenuTitle),
+                              el(
+                                  'button',
+                                  {
+                                      type: 'button',
+                                      className: 'whd-modal__close',
+                                      onClick: handleCloseToolsModal,
+                                      'aria-label': config.strings.toolsClose
+                                  },
+                                  '×'
+                              )
+                          ),
+                          el(
+                              'div',
+                              { className: 'whd-modal__body' },
+                              el(
+                                  'p',
+                                  { className: 'whd-modal__text' },
+                                  config.strings.toolsDimensionsLabel +
+                                      ': ' +
+                                      toolsModal.dimensions.width.toFixed(2) +
+                                      ' m × ' +
+                                      toolsModal.dimensions.depth.toFixed(2) +
+                                      ' m × ' +
+                                      toolsModal.dimensions.height.toFixed(2) +
+                                      ' m'
+                              ),
+                              el(
+                                  'p',
+                                  { className: 'whd-modal__text' },
+                                  config.strings.toolsPositionLabel +
+                                      ': X ' +
+                                      toolsModal.position.x.toFixed(2) +
+                                      ' m, Y ' +
+                                      toolsModal.position.y.toFixed(2) +
+                                      ' m'
+                              )
+                          ),
+                          el(
+                              'div',
+                              { className: 'whd-modal__footer' },
+                              el(
+                                  'button',
+                                  {
+                                      type: 'button',
+                                      className: 'button button-secondary',
+                                      onClick: handleCloseToolsModal
+                                  },
+                                  config.strings.toolsClose
+                              ),
+                              el(
+                                  'button',
+                                  {
+                                      type: 'button',
+                                      className: 'button whd-modal__delete',
+                                      onClick: handleDeleteNode
+                                  },
+                                  config.strings.toolsDelete
+                              )
+                          )
+                      )
+                  )
+                : null
         );
     }
 

@@ -542,38 +542,37 @@
                 const geometry = buildIsometricRectangleGeometry(widthPx, depthPx, heightPx);
                 isoBounds = geometry.bounds;
 
-                isoGroup.add(
-                    new Konva.Line({
-                        points: geometry.left,
-                        closed: true,
-                        fill: 'rgba(59, 130, 246, 0.35)',
-                        stroke: '#1e3a8a',
-                        strokeWidth: 1,
-                        name: 'whd-iso-left'
-                    })
-                );
+                const topFace = new Konva.Line({
+                    points: geometry.top,
+                    closed: true,
+                    fill: 'rgba(191, 219, 254, 0.55)',
+                    stroke: '#1e3a8a',
+                    strokeWidth: 1,
+                    name: 'whd-iso-top'
+                });
 
-                isoGroup.add(
-                    new Konva.Line({
-                        points: geometry.right,
-                        closed: true,
-                        fill: 'rgba(37, 99, 235, 0.45)',
-                        stroke: '#1e3a8a',
-                        strokeWidth: 1,
-                        name: 'whd-iso-right'
-                    })
-                );
+                const leftFace = new Konva.Line({
+                    points: geometry.left,
+                    closed: true,
+                    fill: 'rgba(59, 130, 246, 0.35)',
+                    stroke: '#1e3a8a',
+                    strokeWidth: 1,
+                    name: 'whd-iso-left'
+                });
 
-                isoGroup.add(
-                    new Konva.Line({
-                        points: geometry.top,
-                        closed: true,
-                        fill: 'rgba(191, 219, 254, 0.55)',
-                        stroke: '#1e3a8a',
-                        strokeWidth: 1,
-                        name: 'whd-iso-top'
-                    })
-                );
+                const rightFace = new Konva.Line({
+                    points: geometry.right,
+                    closed: true,
+                    fill: 'rgba(37, 99, 235, 0.45)',
+                    stroke: '#1e3a8a',
+                    strokeWidth: 1,
+                    name: 'whd-iso-right'
+                });
+
+                // Draw faces from farthest to nearest so the perspective feels 3D.
+                isoGroup.add(topFace);
+                isoGroup.add(leftFace);
+                isoGroup.add(rightFace);
 
                 isoGroup.add(
                     new Konva.Line({

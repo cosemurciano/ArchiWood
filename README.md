@@ -11,6 +11,10 @@ WordPress plugin that powers an interactive Konva.js canvas to design custom woo
    - Insert the `[wood_house_designer]` shortcode in the content, or
    - Assign the **Wood House Designer App** page template to render the full application layout.
 
+### GitHub Updates
+
+The plugin can check GitHub releases for automatic updates. If you maintain a fork, filter the repository coordinates via `wood_house_designer_github_updater_config` to point the updater to your fork.
+
 ## Features
 
 - Konva.js powered design surface with snap grid and real scale guides.

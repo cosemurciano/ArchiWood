@@ -61,30 +61,15 @@ if ( ! class_exists( 'Wood_House_Designer' ) ) {
         public function render_app() {
             ob_start();
             ?>
-            <div class="whd-app" id="whd-app" data-app-version="<?php echo esc_attr( WOOD_HOUSE_DESIGNER_VERSION ); ?>">
-                <div class="whd-header">
-                    <h1 class="whd-header__title"><?php esc_html_e( 'Wood House Designer', 'wood-house-designer' ); ?></h1>
+            <div id="whd-app-root">
+                <div class="whd-app whd-app--loading" data-app-version="<?php echo esc_attr( WOOD_HOUSE_DESIGNER_VERSION ); ?>">
+                    <div class="whd-header">
+                        <h1 class="whd-header__title"><?php esc_html_e( 'Wood House Designer', 'wood-house-designer' ); ?></h1>
+                    </div>
+                    <div class="whd-body">
+                        <p><?php esc_html_e( 'Loading application…', 'wood-house-designer' ); ?></p>
+                    </div>
                 </div>
-                <div class="whd-body">
-                    <aside class="whd-tools" aria-label="<?php esc_attr_e( 'Toolbox', 'wood-house-designer' ); ?>">
-                        <div class="whd-tools__section">
-                            <h2 class="whd-tools__title"><?php esc_html_e( 'Shapes', 'wood-house-designer' ); ?></h2>
-                            <ul class="whd-tools__list" id="whd-shape-list"></ul>
-                        </div>
-                        <div class="whd-tools__section">
-                            <h2 class="whd-tools__title"><?php esc_html_e( 'Actions', 'wood-house-designer' ); ?></h2>
-                            <button class="button button-primary" id="whd-export-project" type="button">
-                                <?php esc_html_e( 'Export Project', 'wood-house-designer' ); ?>
-                            </button>
-                        </div>
-                    </aside>
-                    <main class="whd-canvas" aria-label="<?php esc_attr_e( 'Design Canvas', 'wood-house-designer' ); ?>">
-                        <div id="whd-stage-container" class="whd-canvas__stage" role="application" aria-live="polite"></div>
-                    </main>
-                </div>
-                <footer class="whd-status" role="status" aria-live="polite">
-                    <span id="whd-status-message"></span>
-                </footer>
             </div>
             <?php
 
@@ -117,7 +102,7 @@ if ( ! class_exists( 'Wood_House_Designer' ) ) {
             wp_enqueue_script(
                 'wood-house-designer',
                 WOOD_HOUSE_DESIGNER_URL . 'assets/js/app.js',
-                array( 'konva' ),
+                array( 'konva', 'wp-element' ),
                 WOOD_HOUSE_DESIGNER_VERSION,
                 true
             );
@@ -134,6 +119,24 @@ if ( ! class_exists( 'Wood_House_Designer' ) ) {
                     'canvasHeight'   => (int) $options['canvas_height'],
                     'exportFileName' => sanitize_file_name( $options['export_file_name'] ),
                     'appVersion'     => WOOD_HOUSE_DESIGNER_VERSION,
+                    'strings'        => array(
+                        'appTitle'         => esc_html__( 'Wood House Designer', 'wood-house-designer' ),
+                        'shapesHeading'    => esc_html__( 'Shapes', 'wood-house-designer' ),
+                        'actionsHeading'   => esc_html__( 'Actions', 'wood-house-designer' ),
+                        'exportButton'     => esc_html__( 'Export Project', 'wood-house-designer' ),
+                        'ready'            => esc_html__( 'Ready. Use the toolbox to add elements.', 'wood-house-designer' ),
+                        'exportSuccess'    => esc_html__( 'Project exported successfully.', 'wood-house-designer' ),
+                        'exportUnavailable'=> esc_html__( 'Unable to export the project right now.', 'wood-house-designer' ),
+                        'errorKonva'       => esc_html__( 'The drawing library is not available. Please refresh the page.', 'wood-house-designer' ),
+                        'cursorStatus'     => esc_html__( 'Cursor: %x% × %y% m', 'wood-house-designer' ),
+                        'selectedStatus'   => esc_html__( 'Selected %name% - %width%m × %height%m', 'wood-house-designer' ),
+                        'toolWall'         => esc_html__( 'Wall (Rectangle)', 'wood-house-designer' ),
+                        'toolWindow'       => esc_html__( 'Window (Circle)', 'wood-house-designer' ),
+                        'toolBeam'         => esc_html__( 'Beam (Line)', 'wood-house-designer' ),
+                        'toolDimension'    => esc_html__( 'Dimension Label', 'wood-house-designer' ),
+                        'designCanvas'     => esc_html__( 'Design Canvas', 'wood-house-designer' ),
+                        'toolbox'          => esc_html__( 'Toolbox', 'wood-house-designer' ),
+                    ),
                 )
             );
         }

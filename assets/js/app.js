@@ -25,7 +25,15 @@
         viewTop: 'Top View',
         viewIso: 'Isometric View',
         viewToggleLabel: 'View mode',
-        isoViewStatus: 'Isometric view active.'
+        isoViewStatus: 'Isometric view active.',
+        customHeading: 'Create custom cottage',
+        sidesLabel: 'Number of sides',
+        widthLabel: 'Width / bounding width (m)',
+        depthLabel: 'Depth / bounding depth (m)',
+        heightLabel: 'Height (m)',
+        addPolygonButton: 'Add polygon',
+        invalidPolygon: 'Please provide valid values for sides and dimensions.',
+        customAdded: 'Custom cottage added to toolbox.'
     };
 
     const ISO_ANGLE = Math.PI / 6;
@@ -39,7 +47,7 @@
         };
     }
 
-    function buildIsometricGeometry(widthPx, depthPx, heightPx) {
+    function buildIsometricRectangleGeometry(widthPx, depthPx, heightPx) {
         const corners = {
             backLeftBottom: projectIsometric(0, 0, 0),
             backRightBottom: projectIsometric(widthPx, 0, 0),
@@ -109,6 +117,110 @@
         };
     }
 
+    function buildRegularPolygonPoints(sides, widthPx, depthPx) {
+        const count = Math.max(3, Math.round(sides));
+        const centerX = widthPx / 2;
+        const centerY = depthPx / 2;
+        const radiusX = widthPx / 2;
+        const radiusY = depthPx / 2;
+        const startAngle = -Math.PI / 2;
+        const points = [];
+
+        for (let index = 0; index < count; index++) {
+            const angle = startAngle + (index * 2 * Math.PI) / count;
+            const x = centerX + radiusX * Math.cos(angle);
+            const y = centerY + radiusY * Math.sin(angle);
+            points.push(x, y);
+        }
+
+        return points;
+    }
+
+    function buildIsometricPolygonGeometry(points, heightPx) {
+        if (!Array.isArray(points) || points.length < 6) {
+            return { top: [], sides: [], outline: [] };
+        }
+
+        const count = points.length / 2;
+        const basePoints = [];
+        for (let index = 0; index < count; index++) {
+            basePoints.push({
+                x: points[index * 2],
+                y: points[index * 2 + 1]
+            });
+        }
+
+        const projectedTop = [];
+        const projectedBottom = [];
+        let minX = Infinity;
+        let minY = Infinity;
+
+        basePoints.forEach(function (point) {
+            const topPoint = projectIsometric(point.x, point.y, heightPx);
+            const bottomPoint = projectIsometric(point.x, point.y, 0);
+
+            projectedTop.push(topPoint);
+            projectedBottom.push(bottomPoint);
+
+            minX = Math.min(minX, topPoint.x, bottomPoint.x);
+            minY = Math.min(minY, topPoint.y, bottomPoint.y);
+        });
+
+        const shiftX = minX !== Infinity ? -minX : 0;
+        const shiftY = minY !== Infinity ? -minY : 0;
+
+        const adjustedTop = projectedTop.map(function (point) {
+            return {
+                x: point.x + shiftX,
+                y: point.y + shiftY
+            };
+        });
+
+        const adjustedBottom = projectedBottom.map(function (point) {
+            return {
+                x: point.x + shiftX,
+                y: point.y + shiftY
+            };
+        });
+
+        const top = [];
+        adjustedTop.forEach(function (point) {
+            top.push(point.x, point.y);
+        });
+
+        const sides = [];
+        for (let index = 0; index < adjustedTop.length; index++) {
+            const next = (index + 1) % adjustedTop.length;
+            sides.push([
+                adjustedTop[index].x,
+                adjustedTop[index].y,
+                adjustedTop[next].x,
+                adjustedTop[next].y,
+                adjustedBottom[next].x,
+                adjustedBottom[next].y,
+                adjustedBottom[index].x,
+                adjustedBottom[index].y
+            ]);
+        }
+
+        const outline = [];
+        adjustedTop.forEach(function (point) {
+            outline.push(point.x, point.y);
+        });
+        if (adjustedTop.length > 0) {
+            outline.push(adjustedTop[0].x, adjustedTop[0].y);
+        }
+        adjustedTop.forEach(function (point, index) {
+            outline.push(point.x, point.y, adjustedBottom[index].x, adjustedBottom[index].y);
+        });
+
+        return {
+            top: top,
+            sides: sides,
+            outline: outline
+        };
+    }
+
     function applyViewModeToNode(node, mode) {
         if (!node || typeof node.findOne !== 'function') {
             return;
@@ -143,42 +255,153 @@
         const depthPx = dimensions.depthMeters * pixelsPerMeter;
         const heightPx = dimensions.heightMeters * pixelsPerMeter;
 
-        node.setAttr('whdPixelSize', {
+        const sides = node.getAttr('whdPolygonSides') || 4;
+
+        refreshSolidGeometry(node, {
+            sides: sides,
+            widthPx: widthPx,
+            depthPx: depthPx,
+            heightPx: heightPx
+        });
+    }
+
+    function refreshSolidGeometry(group, options) {
+        if (!group) {
+            return;
+        }
+
+        const normalized = options || {};
+        const sides = normalized.sides && normalized.sides >= 3 ? Math.round(normalized.sides) : 4;
+        const widthPx = normalized.widthPx || 0;
+        const depthPx = normalized.depthPx || 0;
+        const heightPx = normalized.heightPx || 0;
+
+        group.setAttr('whdPixelSize', {
             widthPx: widthPx,
             depthPx: depthPx,
             heightPx: heightPx
         });
 
-        const topRect = node.findOne('.whd-top-rect');
-        if (topRect) {
-            topRect.size({ width: widthPx, height: depthPx });
+        const topView = group.findOne('.whd-top-view');
+        if (topView) {
+            topView.destroyChildren();
+
+            if (sides === 4) {
+                topView.add(
+                    new Konva.Rect({
+                        x: 0,
+                        y: 0,
+                        width: widthPx,
+                        height: depthPx,
+                        fill: 'rgba(66, 153, 225, 0.25)',
+                        stroke: '#2b6cb0',
+                        strokeWidth: 2,
+                        name: 'whd-top-rect'
+                    })
+                );
+            } else {
+                topView.add(
+                    new Konva.Line({
+                        points: buildRegularPolygonPoints(sides, widthPx, depthPx),
+                        closed: true,
+                        fill: 'rgba(66, 153, 225, 0.25)',
+                        stroke: '#2b6cb0',
+                        strokeWidth: 2,
+                        name: 'whd-top-polygon'
+                    })
+                );
+            }
         }
 
-        const isoGroup = node.findOne('.whd-iso-view');
-        if (!isoGroup) {
-            return;
-        }
+        const isoGroup = group.findOne('.whd-iso-view');
+        if (isoGroup) {
+            isoGroup.destroyChildren();
 
-        const geometry = buildIsometricGeometry(widthPx, depthPx, heightPx);
-        const topFace = isoGroup.findOne('.whd-iso-top');
-        const leftFace = isoGroup.findOne('.whd-iso-left');
-        const rightFace = isoGroup.findOne('.whd-iso-right');
-        const outline = isoGroup.findOne('.whd-iso-outline');
+            if (sides === 4) {
+                const geometry = buildIsometricRectangleGeometry(widthPx, depthPx, heightPx);
 
-        if (topFace && geometry.top) {
-            topFace.points(geometry.top);
-        }
+                isoGroup.add(
+                    new Konva.Line({
+                        points: geometry.left,
+                        closed: true,
+                        fill: 'rgba(59, 130, 246, 0.35)',
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1,
+                        name: 'whd-iso-left'
+                    })
+                );
 
-        if (leftFace && geometry.left) {
-            leftFace.points(geometry.left);
-        }
+                isoGroup.add(
+                    new Konva.Line({
+                        points: geometry.right,
+                        closed: true,
+                        fill: 'rgba(37, 99, 235, 0.45)',
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1,
+                        name: 'whd-iso-right'
+                    })
+                );
 
-        if (rightFace && geometry.right) {
-            rightFace.points(geometry.right);
-        }
+                isoGroup.add(
+                    new Konva.Line({
+                        points: geometry.top,
+                        closed: true,
+                        fill: 'rgba(191, 219, 254, 0.55)',
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1,
+                        name: 'whd-iso-top'
+                    })
+                );
 
-        if (outline && geometry.outline) {
-            outline.points(geometry.outline);
+                isoGroup.add(
+                    new Konva.Line({
+                        points: geometry.outline,
+                        closed: false,
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1.5,
+                        name: 'whd-iso-outline'
+                    })
+                );
+            } else {
+                const polygonPoints = buildRegularPolygonPoints(sides, widthPx, depthPx);
+                const geometry = buildIsometricPolygonGeometry(polygonPoints, heightPx);
+
+                isoGroup.add(
+                    new Konva.Line({
+                        points: geometry.top,
+                        closed: true,
+                        fill: 'rgba(191, 219, 254, 0.55)',
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1,
+                        name: 'whd-iso-top'
+                    })
+                );
+
+                const sidesGroup = new Konva.Group({ name: 'whd-iso-sides' });
+                geometry.sides.forEach(function (points, index) {
+                    sidesGroup.add(
+                        new Konva.Line({
+                            points: points,
+                            closed: true,
+                            fill: index % 2 === 0 ? 'rgba(59, 130, 246, 0.35)' : 'rgba(37, 99, 235, 0.45)',
+                            stroke: '#1e3a8a',
+                            strokeWidth: 1
+                        })
+                    );
+                });
+
+                isoGroup.add(sidesGroup);
+
+                isoGroup.add(
+                    new Konva.Line({
+                        points: geometry.outline,
+                        closed: false,
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1.5,
+                        name: 'whd-iso-outline'
+                    })
+                );
+            }
         }
     }
 
@@ -194,6 +417,7 @@
         const widthMeters = normalized.widthMeters;
         const depthMeters = normalized.depthMeters;
         const heightMeters = normalized.heightMeters;
+        const polygonSides = normalized.sides && normalized.sides >= 3 ? Math.round(normalized.sides) : 4;
 
         const widthPx = widthMeters * pixelsPerMeter;
         const depthPx = depthMeters * pixelsPerMeter;
@@ -212,25 +436,9 @@
             heightMeters: heightMeters
         });
 
-        group.setAttr('whdPixelSize', {
-            widthPx: widthPx,
-            depthPx: depthPx,
-            heightPx: heightPx
-        });
+        group.setAttr('whdPolygonSides', polygonSides);
 
         const topView = new Konva.Group({ name: 'whd-top-view' });
-        const rect = new Konva.Rect({
-            x: 0,
-            y: 0,
-            width: widthPx,
-            height: depthPx,
-            fill: 'rgba(66, 153, 225, 0.25)',
-            stroke: '#2b6cb0',
-            strokeWidth: 2,
-            name: 'whd-top-rect'
-        });
-
-        topView.add(rect);
         group.add(topView);
 
         const isoGroup = new Konva.Group({
@@ -238,44 +446,14 @@
             visible: false
         });
 
-        const geometry = buildIsometricGeometry(widthPx, depthPx, heightPx);
-
-        isoGroup.add(new Konva.Line({
-            points: geometry.left,
-            closed: true,
-            fill: 'rgba(59, 130, 246, 0.35)',
-            stroke: '#1e3a8a',
-            strokeWidth: 1,
-            name: 'whd-iso-left'
-        }));
-
-        isoGroup.add(new Konva.Line({
-            points: geometry.right,
-            closed: true,
-            fill: 'rgba(37, 99, 235, 0.45)',
-            stroke: '#1e3a8a',
-            strokeWidth: 1,
-            name: 'whd-iso-right'
-        }));
-
-        isoGroup.add(new Konva.Line({
-            points: geometry.top,
-            closed: true,
-            fill: 'rgba(191, 219, 254, 0.55)',
-            stroke: '#1e3a8a',
-            strokeWidth: 1,
-            name: 'whd-iso-top'
-        }));
-
-        isoGroup.add(new Konva.Line({
-            points: geometry.outline,
-            closed: false,
-            stroke: '#1e3a8a',
-            strokeWidth: 1.5,
-            name: 'whd-iso-outline'
-        }));
-
         group.add(isoGroup);
+
+        refreshSolidGeometry(group, {
+            sides: polygonSides,
+            widthPx: widthPx,
+            depthPx: depthPx,
+            heightPx: heightPx
+        });
 
         return group;
     }
@@ -499,8 +677,9 @@
     function WoodHouseDesignerApp(props) {
         const configRef = useRef(buildConfig(props.initialConfig));
         const config = configRef.current;
-        const cottagesRef = useRef(getCottagesConfig(config));
-        const cottages = cottagesRef.current;
+        const [cottages, setCottages] = useState(function () {
+            return getCottagesConfig(config);
+        });
 
         const stageContainerRef = useRef(null);
         const stageRef = useRef(null);
@@ -513,6 +692,11 @@
 
         const [status, setStatus] = useState('');
         const [viewMode, setViewMode] = useState('top');
+        const [customSides, setCustomSides] = useState('4');
+        const [customWidth, setCustomWidth] = useState('');
+        const [customDepth, setCustomDepth] = useState('');
+        const [customHeight, setCustomHeight] = useState('');
+        const [customError, setCustomError] = useState('');
 
         const updateStatus = useCallback(function (message) {
             if (statusRef.current === message) {
@@ -755,6 +939,70 @@
             updateStatus(getDimensions(node, config));
         }, [config, updateStatus]);
 
+        const handleAddCustomPolygon = useCallback(
+            function (event) {
+                if (event && typeof event.preventDefault === 'function') {
+                    event.preventDefault();
+                }
+
+                const sidesValue = parseInt(customSides, 10);
+                const widthValue = parseFloat(customWidth);
+                const depthValue = parseFloat(customDepth);
+                const heightValue = parseFloat(customHeight);
+
+                if (
+                    !Number.isFinite(sidesValue) ||
+                    sidesValue < 3 ||
+                    !Number.isFinite(widthValue) ||
+                    widthValue <= 0 ||
+                    !Number.isFinite(depthValue) ||
+                    depthValue <= 0 ||
+                    !Number.isFinite(heightValue) ||
+                    heightValue <= 0
+                ) {
+                    setCustomError(config.strings.invalidPolygon);
+                    return;
+                }
+
+                setCustomError('');
+
+                const widthMeters = parseFloat(widthValue.toFixed(2));
+                const depthMeters = parseFloat(depthValue.toFixed(2));
+                const heightMeters = parseFloat(heightValue.toFixed(2));
+                const label = formatTemplate(config.strings.cottageLabel, {
+                    width: String(widthMeters),
+                    depth: String(depthMeters),
+                    height: String(heightMeters)
+                });
+
+                const tool = {
+                    id: 'custom-' + Date.now(),
+                    label: label,
+                    factory: function (options) {
+                        const currentGrid = options && options.gridSize ? options.gridSize : config.gridSize;
+                        const currentScale = options && options.scaleRatio ? options.scaleRatio : config.scaleRatio;
+                        return createCottageNode({
+                            gridSize: currentGrid,
+                            scaleRatio: currentScale,
+                            widthMeters: widthMeters,
+                            depthMeters: depthMeters,
+                            heightMeters: heightMeters,
+                            sides: sidesValue
+                        });
+                    }
+                };
+
+                setCottages(function (previous) {
+                    return previous.concat(tool);
+                });
+                setCustomWidth('');
+                setCustomDepth('');
+                setCustomHeight('');
+                updateStatus(config.strings.customAdded);
+            },
+            [config, customDepth, customHeight, customSides, customWidth, updateStatus]
+        );
+
         const handleExport = useCallback(function () {
             if (!stageRef.current) {
                 updateStatus(config.strings.exportUnavailable);
@@ -847,6 +1095,96 @@
                                           )
                                       );
                                   })
+                        )
+                    ),
+                    el(
+                        'div',
+                        { className: 'whd-tools__section' },
+                        el('h3', { className: 'whd-tools__subtitle' }, config.strings.customHeading),
+                        el(
+                            'form',
+                            {
+                                className: 'whd-custom-form',
+                                onSubmit: handleAddCustomPolygon
+                            },
+                            el(
+                                'label',
+                                { className: 'whd-field' },
+                                el('span', { className: 'whd-field__label' }, config.strings.sidesLabel),
+                                el('input', {
+                                    className: 'whd-field__input',
+                                    type: 'number',
+                                    min: 3,
+                                    value: customSides,
+                                    onChange: function (event) {
+                                        setCustomSides(event.target.value);
+                                        setCustomError('');
+                                    }
+                                })
+                            ),
+                            el(
+                                'label',
+                                { className: 'whd-field' },
+                                el('span', { className: 'whd-field__label' }, config.strings.widthLabel),
+                                el('input', {
+                                    className: 'whd-field__input',
+                                    type: 'number',
+                                    min: 0.1,
+                                    step: 0.1,
+                                    value: customWidth,
+                                    onChange: function (event) {
+                                        setCustomWidth(event.target.value);
+                                        setCustomError('');
+                                    }
+                                })
+                            ),
+                            el(
+                                'label',
+                                { className: 'whd-field' },
+                                el('span', { className: 'whd-field__label' }, config.strings.depthLabel),
+                                el('input', {
+                                    className: 'whd-field__input',
+                                    type: 'number',
+                                    min: 0.1,
+                                    step: 0.1,
+                                    value: customDepth,
+                                    onChange: function (event) {
+                                        setCustomDepth(event.target.value);
+                                        setCustomError('');
+                                    }
+                                })
+                            ),
+                            el(
+                                'label',
+                                { className: 'whd-field' },
+                                el('span', { className: 'whd-field__label' }, config.strings.heightLabel),
+                                el('input', {
+                                    className: 'whd-field__input',
+                                    type: 'number',
+                                    min: 0.1,
+                                    step: 0.1,
+                                    value: customHeight,
+                                    onChange: function (event) {
+                                        setCustomHeight(event.target.value);
+                                        setCustomError('');
+                                    }
+                                })
+                            ),
+                            customError
+                                ? el(
+                                      'div',
+                                      { className: 'whd-field__error', role: 'alert' },
+                                      customError
+                                  )
+                                : null,
+                            el(
+                                'button',
+                                {
+                                    type: 'submit',
+                                    className: 'button button-secondary whd-custom-form__button'
+                                },
+                                config.strings.addPolygonButton
+                            )
                         )
                     ),
                     el(

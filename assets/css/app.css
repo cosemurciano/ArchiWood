@@ -92,6 +92,14 @@
     letter-spacing: 0.04em;
 }
 
+.whd-tools__subtitle {
+    font-size: 0.9rem;
+    margin: 0 0 0.5rem;
+    text-transform: uppercase;
+    color: var(--whd-primary);
+    letter-spacing: 0.04em;
+}
+
 .whd-tools__list {
     list-style: none;
     padding: 0;
@@ -121,6 +129,46 @@
     background: #edf2f7;
     box-shadow: 0 0 0 3px rgba(47, 133, 90, 0.25);
     outline: none;
+}
+
+.whd-custom-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.whd-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+}
+
+.whd-field__label {
+    font-weight: 600;
+    color: var(--whd-text);
+}
+
+.whd-field__input {
+    border: 1px solid var(--whd-border);
+    border-radius: 4px;
+    padding: 0.45rem 0.5rem;
+    font-size: 0.9rem;
+}
+
+.whd-field__input:focus {
+    border-color: var(--whd-primary);
+    box-shadow: 0 0 0 2px rgba(47, 133, 90, 0.25);
+    outline: none;
+}
+
+.whd-field__error {
+    color: #c53030;
+    font-size: 0.8rem;
+}
+
+.whd-custom-form__button {
+    align-self: flex-start;
 }
 
 .whd-canvas {

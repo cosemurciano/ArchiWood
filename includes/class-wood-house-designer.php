@@ -140,6 +140,14 @@ if ( ! class_exists( 'Wood_House_Designer' ) ) {
                         'viewIso'          => esc_html__( 'Isometric View', 'wood-house-designer' ),
                         'viewToggleLabel'  => esc_html__( 'View mode', 'wood-house-designer' ),
                         'isoViewStatus'    => esc_html__( 'Isometric view active.', 'wood-house-designer' ),
+                        'customHeading'    => esc_html__( 'Create custom cottage', 'wood-house-designer' ),
+                        'sidesLabel'       => esc_html__( 'Number of sides', 'wood-house-designer' ),
+                        'widthLabel'       => esc_html__( 'Width / bounding width (m)', 'wood-house-designer' ),
+                        'depthLabel'       => esc_html__( 'Depth / bounding depth (m)', 'wood-house-designer' ),
+                        'heightLabel'      => esc_html__( 'Height (m)', 'wood-house-designer' ),
+                        'addPolygonButton' => esc_html__( 'Add polygon', 'wood-house-designer' ),
+                        'invalidPolygon'   => esc_html__( 'Please provide valid values for sides and dimensions.', 'wood-house-designer' ),
+                        'customAdded'      => esc_html__( 'Custom cottage added to toolbox.', 'wood-house-designer' ),
                     ),
                 )
             );

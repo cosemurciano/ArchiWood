@@ -174,22 +174,12 @@
     line-height: 1;
 }
 
-.whd-tool-button__label {
-    font-weight: 600;
-    font-size: 0.95rem;
-    color: var(--whd-text);
-}
-
 .whd-tool-button__dims {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.35rem;
-    font-size: 0.8rem;
-    background: rgba(255, 255, 255, 0.7);
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
     color: #1a202c;
-    padding: 0.35rem 0.5rem;
-    border-radius: 999px;
+    opacity: 0.85;
 }
 
 .whd-tool-button__dims-item {

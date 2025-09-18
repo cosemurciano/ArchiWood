@@ -305,6 +305,20 @@
             };
         });
 
+        const baseOffsetY = adjustedBottom.reduce(function (min, point) {
+            return Math.min(min, point.y);
+        }, Infinity);
+
+        if (baseOffsetY !== Infinity && baseOffsetY !== 0) {
+            for (let index = 0; index < adjustedTop.length; index++) {
+                adjustedTop[index].y -= baseOffsetY;
+            }
+
+            for (let index = 0; index < adjustedBottom.length; index++) {
+                adjustedBottom[index].y -= baseOffsetY;
+            }
+        }
+
         const top = [];
         adjustedTop.forEach(function (point) {
             top.push(point.x, point.y);
@@ -1293,6 +1307,14 @@
 
                 const className = 'whd-tool-button whd-tool-button--' + variant;
 
+                const dimsText =
+                    widthValue.toFixed(2) +
+                    ' m × ' +
+                    depthValue.toFixed(2) +
+                    ' m × ' +
+                    heightValue.toFixed(2) +
+                    ' m';
+
                 return el(
                     'li',
                     { key: tool.id },
@@ -1307,16 +1329,7 @@
                             'aria-label': tool.label
                         },
                         el('span', { className: 'whd-tool-button__icon', 'aria-hidden': 'true' }, '🏠'),
-                        el('span', { className: 'whd-tool-button__label' }, tool.label),
-                        el(
-                            'span',
-                            { className: 'whd-tool-button__dims' },
-                            el('span', { className: 'whd-tool-button__dims-item' }, widthValue.toFixed(2) + ' m'),
-                            el('span', { className: 'whd-tool-button__dims-separator', 'aria-hidden': 'true' }, '×'),
-                            el('span', { className: 'whd-tool-button__dims-item' }, depthValue.toFixed(2) + ' m'),
-                            el('span', { className: 'whd-tool-button__dims-separator', 'aria-hidden': 'true' }, '×'),
-                            el('span', { className: 'whd-tool-button__dims-item' }, heightValue.toFixed(2) + ' m')
-                        )
+                        el('span', { className: 'whd-tool-button__dims' }, dimsText)
                     )
                 );
             });

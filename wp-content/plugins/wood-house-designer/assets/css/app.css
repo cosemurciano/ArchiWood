@@ -1,0 +1,153 @@
+
+:root {
+    --whd-primary: #2f855a;
+    --whd-secondary: #f7fafc;
+    --whd-border: #cbd5e0;
+    --whd-text: #2d3748;
+    --whd-header-height: 50px;
+}
+
+.whd-app {
+    display: flex;
+    flex-direction: column;
+    min-height: 600px;
+    border: 1px solid var(--whd-border);
+    background: #ffffff;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    color: var(--whd-text);
+}
+
+.whd-header {
+    height: var(--whd-header-height);
+    background: var(--whd-primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    padding: 0 1.5rem;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+}
+
+.whd-header__title {
+    font-size: 1.25rem;
+    margin: 0;
+    letter-spacing: 0.05em;
+}
+
+.whd-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    background: var(--whd-secondary);
+}
+
+.whd-tools {
+    flex-basis: 20%;
+    max-width: 280px;
+    min-width: 220px;
+    background: #fff;
+    border-right: 1px solid var(--whd-border);
+    padding: 1rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.whd-tools__title {
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    color: var(--whd-primary);
+    letter-spacing: 0.04em;
+}
+
+.whd-tools__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.5rem;
+}
+
+.whd-tool-button {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--whd-border);
+    background: #fdfdfd;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.2s, box-shadow 0.2s;
+}
+
+.whd-tool-button:hover,
+.whd-tool-button:focus {
+    background: #edf2f7;
+    box-shadow: 0 0 0 3px rgba(47, 133, 90, 0.25);
+    outline: none;
+}
+
+.whd-canvas {
+    flex-basis: 80%;
+    flex-grow: 1;
+    padding: 1rem;
+    min-width: 0;
+}
+
+.whd-canvas__stage {
+    width: 100%;
+    height: 100%;
+    background: #fff;
+    border: 1px solid var(--whd-border);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.whd-status {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    background: #1a202c;
+    color: #e2e8f0;
+    font-size: 0.9rem;
+    border-top: 1px solid #2d3748;
+}
+
+.whd-status span {
+    flex: 1;
+}
+
+.whd-export-output {
+    width: 100%;
+    margin-top: 1rem;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.8rem;
+}
+
+@media (max-width: 1024px) {
+    .whd-body {
+        flex-direction: column;
+    }
+
+    .whd-tools {
+        flex-basis: auto;
+        max-width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--whd-border);
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .whd-canvas {
+        flex-basis: auto;
+        min-height: 400px;
+    }
+}
+
+@media (max-width: 600px) {
+    .whd-tools {
+        flex-direction: column;
+    }
+}

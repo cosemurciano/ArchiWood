@@ -1,0 +1,166 @@
+<?php
+/**
+ * Core functionality for Wood House Designer.
+ *
+ * @package WoodHouseDesigner
+ */
+
+if ( ! class_exists( 'Wood_House_Designer' ) ) {
+    /**
+     * Main plugin class.
+     */
+    class Wood_House_Designer {
+        /**
+         * Singleton instance.
+         *
+         * @var Wood_House_Designer
+         */
+        protected static $instance = null;
+
+        /**
+         * Retrieve singleton instance.
+         *
+         * @return Wood_House_Designer
+         */
+        public static function instance() {
+            if ( null === self::$instance ) {
+                self::$instance = new self();
+            }
+
+            return self::$instance;
+        }
+
+        /**
+         * Constructor.
+         */
+        private function __construct() {
+            add_action( 'plugins_loaded', array( $this, 'load_textdomain' ) );
+            add_action( 'init', array( $this, 'register_shortcode' ) );
+            add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+        }
+
+        /**
+         * Load plugin translations.
+         */
+        public function load_textdomain() {
+            load_plugin_textdomain( 'wood-house-designer', false, dirname( WOOD_HOUSE_DESIGNER_BASENAME ) . '/languages' );
+        }
+
+        /**
+         * Register shortcode for app rendering.
+         */
+        public function register_shortcode() {
+            add_shortcode( 'wood_house_designer', array( $this, 'render_app' ) );
+        }
+
+        /**
+         * Render app container.
+         *
+         * @return string
+         */
+        public function render_app() {
+            ob_start();
+            ?>
+            <div class="whd-app" id="whd-app" data-app-version="<?php echo esc_attr( WOOD_HOUSE_DESIGNER_VERSION ); ?>">
+                <div class="whd-header">
+                    <h1 class="whd-header__title"><?php esc_html_e( 'Wood House Designer', 'wood-house-designer' ); ?></h1>
+                </div>
+                <div class="whd-body">
+                    <aside class="whd-tools" aria-label="<?php esc_attr_e( 'Toolbox', 'wood-house-designer' ); ?>">
+                        <div class="whd-tools__section">
+                            <h2 class="whd-tools__title"><?php esc_html_e( 'Shapes', 'wood-house-designer' ); ?></h2>
+                            <ul class="whd-tools__list" id="whd-shape-list"></ul>
+                        </div>
+                        <div class="whd-tools__section">
+                            <h2 class="whd-tools__title"><?php esc_html_e( 'Actions', 'wood-house-designer' ); ?></h2>
+                            <button class="button button-primary" id="whd-export-project" type="button">
+                                <?php esc_html_e( 'Export Project', 'wood-house-designer' ); ?>
+                            </button>
+                        </div>
+                    </aside>
+                    <main class="whd-canvas" aria-label="<?php esc_attr_e( 'Design Canvas', 'wood-house-designer' ); ?>">
+                        <div id="whd-stage-container" class="whd-canvas__stage" role="application" aria-live="polite"></div>
+                    </main>
+                </div>
+                <footer class="whd-status" role="status" aria-live="polite">
+                    <span id="whd-status-message"></span>
+                </footer>
+            </div>
+            <?php
+
+            return (string) ob_get_clean();
+        }
+
+        /**
+         * Enqueue scripts and styles.
+         */
+        public function enqueue_assets() {
+            if ( ! $this->should_enqueue() ) {
+                return;
+            }
+
+            wp_enqueue_style(
+                'wood-house-designer',
+                WOOD_HOUSE_DESIGNER_URL . 'assets/css/app.css',
+                array(),
+                WOOD_HOUSE_DESIGNER_VERSION
+            );
+
+            wp_enqueue_script(
+                'konva',
+                'https://unpkg.com/konva@9.3.6/konva.min.js',
+                array(),
+                '9.3.6',
+                true
+            );
+
+            wp_enqueue_script(
+                'wood-house-designer',
+                WOOD_HOUSE_DESIGNER_URL . 'assets/js/app.js',
+                array( 'konva' ),
+                WOOD_HOUSE_DESIGNER_VERSION,
+                true
+            );
+
+            $options = Wood_House_Designer_Settings::instance()->get_options();
+
+            wp_localize_script(
+                'wood-house-designer',
+                'WoodHouseDesignerConfig',
+                array(
+                    'gridSize'       => (int) $options['grid_size'],
+                    'scaleRatio'     => (float) $options['scale_ratio'],
+                    'canvasWidth'    => (int) $options['canvas_width'],
+                    'canvasHeight'   => (int) $options['canvas_height'],
+                    'exportFileName' => sanitize_file_name( $options['export_file_name'] ),
+                    'appVersion'     => WOOD_HOUSE_DESIGNER_VERSION,
+                )
+            );
+        }
+
+        /**
+         * Determine if assets should load on page.
+         *
+         * @return bool
+         */
+        protected function should_enqueue() {
+            if ( is_admin() ) {
+                return false;
+            }
+
+            global $post;
+
+            if ( ! $post instanceof WP_Post ) {
+                return false;
+            }
+
+            if ( has_shortcode( (string) $post->post_content, 'wood_house_designer' ) ) {
+                return true;
+            }
+
+            $template = get_page_template_slug( $post );
+
+            return 'wood-house-designer-template.php' === $template;
+        }
+    }
+}

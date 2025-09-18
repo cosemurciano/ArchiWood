@@ -69,6 +69,12 @@
     gap: 0.5rem;
 }
 
+.whd-tools__empty {
+    font-style: italic;
+    color: #4a5568;
+    padding: 0.5rem 0.75rem;
+}
+
 .whd-tool-button {
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--whd-border);
@@ -150,4 +156,31 @@
     .whd-tools {
         flex-direction: column;
     }
+}
+
+body.wood-house-designer-fullscreen {
+    margin: 0;
+    background: var(--whd-secondary);
+}
+
+.wood-house-designer-fullscreen__container {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.wood-house-designer-fullscreen__content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+}
+
+.wood-house-designer-fullscreen__content > * {
+    flex: 1;
+}
+
+body.wood-house-designer-fullscreen .whd-app {
+    min-height: 100vh;
+    border: none;
 }

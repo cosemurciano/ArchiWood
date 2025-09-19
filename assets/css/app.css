@@ -169,6 +169,11 @@
     border-color: #f59e0b;
 }
 
+.whd-tool-button--door {
+    background: linear-gradient(160deg, #d1fae5 0%, #a7f3d0 100%);
+    border-color: #10b981;
+}
+
 .whd-tool-button__icon {
     font-size: 1.75rem;
     line-height: 1;

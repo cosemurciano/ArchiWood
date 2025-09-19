@@ -277,9 +277,10 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                         continue;
                     }
 
-                    $width  = isset( $item['width'] ) ? (float) $item['width'] : 0.0;
-                    $depth  = isset( $item['depth'] ) ? (float) $item['depth'] : 0.0;
-                    $height = isset( $item['height'] ) ? (float) $item['height'] : 0.0;
+                    $width          = isset( $item['width'] ) ? (float) $item['width'] : 0.0;
+                    $depth          = isset( $item['depth'] ) ? (float) $item['depth'] : 0.0;
+                    $height         = isset( $item['height'] ) ? (float) $item['height'] : 0.0;
+                    $wall_thickness = isset( $item['wall_thickness'] ) ? (int) $item['wall_thickness'] : 45;
 
                     if ( $width <= 0 || $depth <= 0 ) {
                         continue;
@@ -289,10 +290,15 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                         $height = 3.0;
                     }
 
+                    if ( ! in_array( $wall_thickness, array( 28, 45, 80 ), true ) ) {
+                        $wall_thickness = 45;
+                    }
+
                     $casette[] = array(
-                        'width'  => round( $width, 2 ),
-                        'depth'  => round( $depth, 2 ),
-                        'height' => round( $height, 2 ),
+                        'width'          => round( $width, 2 ),
+                        'depth'          => round( $depth, 2 ),
+                        'height'         => round( $height, 2 ),
+                        'wall_thickness' => $wall_thickness,
                     );
                 }
 
@@ -306,7 +312,7 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
          * Render introduction text for cottages section.
          */
         public function render_casette_section_intro() {
-            echo '<p>' . esc_html__( 'Define the list of cottage volumes available in the designer. Width, depth, and height are expressed in meters.', 'wood-house-designer' ) . '</p>';
+            echo '<p>' . esc_html__( 'Define the list of cottage volumes available in the designer. Width, depth, and height are expressed in meters, while wall thickness is expressed in millimeters.', 'wood-house-designer' ) . '</p>';
         }
 
         /**
@@ -323,9 +329,10 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                         <p class="whd-casette-empty"><?php esc_html_e( 'No cottages configured yet.', 'wood-house-designer' ); ?></p>
                     <?php else : ?>
                         <?php foreach ( $casette as $index => $item ) :
-                            $width  = isset( $item['width'] ) ? $item['width'] : '';
-                            $depth  = isset( $item['depth'] ) ? $item['depth'] : '';
-                            $height = isset( $item['height'] ) ? $item['height'] : '3';
+                            $width          = isset( $item['width'] ) ? $item['width'] : '';
+                            $depth          = isset( $item['depth'] ) ? $item['depth'] : '';
+                            $height         = isset( $item['height'] ) ? $item['height'] : '3';
+                            $wall_thickness = isset( $item['wall_thickness'] ) ? (int) $item['wall_thickness'] : 45;
                             ?>
                             <div class="whd-casetta-row" data-index="<?php echo esc_attr( $index ); ?>">
                                 <div class="whd-casetta-field">
@@ -344,6 +351,16 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                                     <label>
                                         <?php esc_html_e( 'Height (m)', 'wood-house-designer' ); ?>
                                         <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name . '[' . $index . '][height]' ); ?>" value="<?php echo esc_attr( $height ); ?>" />
+                                    </label>
+                                </div>
+                                <div class="whd-casetta-field">
+                                    <label>
+                                        <?php esc_html_e( 'Wall thickness (mm)', 'wood-house-designer' ); ?>
+                                        <select name="<?php echo esc_attr( $field_name . '[' . $index . '][wall_thickness]' ); ?>">
+                                            <?php foreach ( array( 28, 45, 80 ) as $option ) : ?>
+                                                <option value="<?php echo esc_attr( $option ); ?>" <?php selected( $wall_thickness, $option ); ?>><?php echo esc_html( $option ); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
                                     </label>
                                 </div>
                                 <button type="button" class="button whd-remove-casetta"><?php esc_html_e( 'Remove', 'wood-house-designer' ); ?></button>
@@ -371,6 +388,16 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                         <label>
                             <?php esc_html_e( 'Height (m)', 'wood-house-designer' ); ?>
                             <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name ); ?>[{{index}}][height]" value="3" />
+                        </label>
+                    </div>
+                    <div class="whd-casetta-field">
+                        <label>
+                            <?php esc_html_e( 'Wall thickness (mm)', 'wood-house-designer' ); ?>
+                            <select name="<?php echo esc_attr( $field_name ); ?>[{{index}}][wall_thickness]">
+                                <?php foreach ( array( 28, 45, 80 ) as $option ) : ?>
+                                    <option value="<?php echo esc_attr( $option ); ?>" <?php selected( 45, $option ); ?>><?php echo esc_html( $option ); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </label>
                     </div>
                     <button type="button" class="button whd-remove-casetta"><?php esc_html_e( 'Remove', 'wood-house-designer' ); ?></button>

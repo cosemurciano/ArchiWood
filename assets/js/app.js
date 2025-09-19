@@ -40,9 +40,11 @@
         widthLabel: 'Width / bounding width (m)',
         depthLabel: 'Depth / bounding depth (m)',
         heightLabel: 'Height (m)',
+        wallThicknessLabel: 'Wall thickness (mm)',
         addPolygonButton: 'Add polygon',
         invalidPolygon: 'Please provide valid values for sides and dimensions.',
         customAdded: 'Custom cottage added to toolbox.',
+        placementBlocked: 'Unable to place cottage without intersections.',
         adminCottagesTitle: 'Catalog cottages',
         userCottagesTitle: 'Your cottages',
         toolsMenuTitle: 'Cottage tools',
@@ -197,6 +199,28 @@
             maxX: maxX === -Infinity ? 0 : maxX,
             maxY: maxY === -Infinity ? 0 : maxY
         };
+    }
+
+    function rectanglesOverlap(first, second) {
+        if (!first || !second) {
+            return false;
+        }
+
+        const firstWidth = Number.isFinite(first.width) ? first.width : 0;
+        const firstHeight = Number.isFinite(first.height) ? first.height : 0;
+        const secondWidth = Number.isFinite(second.width) ? second.width : 0;
+        const secondHeight = Number.isFinite(second.height) ? second.height : 0;
+
+        if (firstWidth <= 0 || firstHeight <= 0 || secondWidth <= 0 || secondHeight <= 0) {
+            return false;
+        }
+
+        return (
+            first.x < second.x + secondWidth &&
+            first.x + firstWidth > second.x &&
+            first.y < second.y + secondHeight &&
+            first.y + firstHeight > second.y
+        );
     }
 
     function ensureControlButton(group, parent, view) {
@@ -645,6 +669,7 @@
         const viewOptions = options || {};
         const isoOffset = viewOptions.isoOffset || { x: 0, y: 0 };
         const gridSize = viewOptions.gridSize && viewOptions.gridSize > 0 ? viewOptions.gridSize : 1;
+        const customDragBound = typeof viewOptions.dragBoundFunc === 'function' ? viewOptions.dragBoundFunc : null;
         let worldPosition = node.getAttr('whdWorldPosition');
 
         if (!worldPosition) {
@@ -675,7 +700,11 @@
 
         if (typeof node.dragBoundFunc === 'function' && typeof node.draggable === 'function' && node.draggable()) {
             node.dragBoundFunc(function (pos) {
-                const isoOptions = { isoOffset: isoOffset };
+                const isoOptions = { isoOffset: isoOffset, gridSize: gridSize };
+                if (customDragBound) {
+                    return customDragBound(node, pos, mode, isoOptions);
+                }
+
                 const world = viewToWorldPosition(pos, mode, isoOptions);
                 const snapped = snapPosition(world, gridSize);
                 return worldToViewPosition(snapped, mode, isoOptions);
@@ -1383,8 +1412,187 @@
         const [customWidth, setCustomWidth] = useState('');
         const [customDepth, setCustomDepth] = useState('');
         const [customHeight, setCustomHeight] = useState('');
+        const [customWallThickness, setCustomWallThickness] = useState('45');
         const [customError, setCustomError] = useState('');
         const [toolsModal, setToolsModal] = useState(null);
+
+        const getNodeFootprintRect = useCallback(function (node, worldPosition) {
+            if (!node) {
+                return null;
+            }
+
+            const pixelSize = node.getAttr('whdPixelSize');
+            const widthPx =
+                pixelSize && Number.isFinite(pixelSize.widthPx) ? Math.abs(pixelSize.widthPx) : 0;
+            const depthPx =
+                pixelSize && Number.isFinite(pixelSize.depthPx) ? Math.abs(pixelSize.depthPx) : 0;
+            const basePosition = worldPosition || node.getAttr('whdWorldPosition');
+
+            if (
+                !basePosition ||
+                !Number.isFinite(basePosition.x) ||
+                !Number.isFinite(basePosition.y) ||
+                widthPx <= 0 ||
+                depthPx <= 0
+            ) {
+                return null;
+            }
+
+            return {
+                x: basePosition.x,
+                y: basePosition.y,
+                width: widthPx,
+                height: depthPx
+            };
+        }, []);
+
+        const isPositionWithinStage = useCallback(
+            function (node, worldPosition) {
+                const rect = getNodeFootprintRect(node, worldPosition);
+                if (!rect) {
+                    return true;
+                }
+
+                if (rect.x < 0 || rect.y < 0) {
+                    return false;
+                }
+
+                const stage = stageRef.current;
+                if (!stage) {
+                    return true;
+                }
+
+                const stageWidth = stage.width();
+                const stageHeight = stage.height();
+
+                if (
+                    !Number.isFinite(stageWidth) ||
+                    !Number.isFinite(stageHeight) ||
+                    stageWidth <= 0 ||
+                    stageHeight <= 0
+                ) {
+                    return true;
+                }
+
+                return rect.x + rect.width <= stageWidth && rect.y + rect.height <= stageHeight;
+            },
+            [getNodeFootprintRect]
+        );
+
+        const hasCollision = useCallback(
+            function (node, worldPosition) {
+                const targetRect = getNodeFootprintRect(node, worldPosition);
+                if (!targetRect) {
+                    return false;
+                }
+
+                const layer = drawingLayerRef.current;
+                if (!layer) {
+                    return false;
+                }
+
+                const children = layer.getChildren();
+                for (let index = 0; index < children.length; index++) {
+                    const other = children[index];
+                    if (other === node) {
+                        continue;
+                    }
+
+                    if (typeof other.draggable === 'function' && !other.draggable()) {
+                        continue;
+                    }
+
+                    const otherRect = getNodeFootprintRect(other);
+                    if (!otherRect) {
+                        continue;
+                    }
+
+                    if (rectanglesOverlap(targetRect, otherRect)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            },
+            [getNodeFootprintRect]
+        );
+
+        const resolveWorldPosition = useCallback(
+            function (node, desiredWorld) {
+                const previous = node.getAttr('whdWorldPosition');
+                const fallback = previous
+                    ? { x: previous.x, y: previous.y }
+                    : { x: desiredWorld.x, y: desiredWorld.y };
+
+                if (!isPositionWithinStage(node, desiredWorld)) {
+                    return { accepted: false, world: fallback };
+                }
+
+                if (hasCollision(node, desiredWorld)) {
+                    return { accepted: false, world: fallback };
+                }
+
+                return { accepted: true, world: desiredWorld };
+            },
+            [hasCollision, isPositionWithinStage]
+        );
+
+        const findAvailableWorldPosition = useCallback(
+            function (node, startWorld) {
+                const grid = config.gridSize && config.gridSize > 0 ? config.gridSize : 1;
+                const base = startWorld || { x: 0, y: 0 };
+                const normalizedBase = {
+                    x: Number.isFinite(base.x) ? base.x : 0,
+                    y: Number.isFinite(base.y) ? base.y : 0
+                };
+                const maxRadius = 25;
+
+                for (let radius = 0; radius <= maxRadius; radius++) {
+                    for (let dx = -radius; dx <= radius; dx++) {
+                        for (let dy = -radius; dy <= radius; dy++) {
+                            if (radius !== 0 && Math.abs(dx) !== radius && Math.abs(dy) !== radius) {
+                                continue;
+                            }
+
+                            const candidate = {
+                                x: normalizedBase.x + dx * grid,
+                                y: normalizedBase.y + dy * grid
+                            };
+
+                            if (!isPositionWithinStage(node, candidate)) {
+                                continue;
+                            }
+
+                            if (!hasCollision(node, candidate)) {
+                                return candidate;
+                            }
+                        }
+                    }
+                }
+
+                return null;
+            },
+            [config.gridSize, hasCollision, isPositionWithinStage]
+        );
+
+        const handleDragBound = useCallback(
+            function (node, pos, mode, dragOptions) {
+                const isoParams = {
+                    isoOffset:
+                        dragOptions && dragOptions.isoOffset ? dragOptions.isoOffset : { x: 0, y: 0 }
+                };
+                const grid =
+                    dragOptions && dragOptions.gridSize && dragOptions.gridSize > 0
+                        ? dragOptions.gridSize
+                        : config.gridSize;
+                const world = viewToWorldPosition(pos, mode, isoParams);
+                const snapped = snapPosition(world, grid);
+                const resolution = resolveWorldPosition(node, snapped);
+                node.setAttr('whdWorldPosition', resolution.world);
+                return worldToViewPosition(resolution.world, mode, isoParams);
+            },
+            [config.gridSize, resolveWorldPosition]
+        );
 
         const updateStatus = useCallback(function (message) {
             if (statusRef.current === message) {
@@ -1531,7 +1739,8 @@
                     drawingLayerRef.current.getChildren().forEach(function (child) {
                         applyViewModeToNode(child, viewModeRef.current, {
                             isoOffset: isoOffset,
-                            gridSize: config.gridSize
+                            gridSize: config.gridSize,
+                            dragBoundFunc: handleDragBound
                         });
                     });
                     drawingLayerRef.current.batchDraw();
@@ -1630,7 +1839,7 @@
                     stageRef.current = null;
                 }
             };
-        }, [config, updateStatus]);
+        }, [config, handleDragBound, updateStatus]);
 
         useEffect(function () {
             viewModeRef.current = viewMode;
@@ -1653,7 +1862,8 @@
                 drawingLayerRef.current.getChildren().forEach(function (node) {
                     applyViewModeToNode(node, viewMode, {
                         isoOffset: isoOffset,
-                        gridSize: config.gridSize
+                        gridSize: config.gridSize,
+                        dragBoundFunc: handleDragBound
                     });
                 });
                 drawingLayerRef.current.batchDraw();
@@ -1667,7 +1877,7 @@
             } else {
                 updateStatus(config.strings.ready);
             }
-        }, [config, updateStatus, viewMode]);
+        }, [config, handleDragBound, updateStatus, viewMode]);
 
         const handleToolClick = useCallback(
             function (tool) {
@@ -1687,25 +1897,28 @@
                 let worldPosition = node.getAttr('whdWorldPosition');
                 if (!worldPosition) {
                     worldPosition = snapPosition(node.position(), config.gridSize);
-                    node.setAttr('whdWorldPosition', worldPosition);
                 }
+
+                const safeWorldPosition = findAvailableWorldPosition(node, worldPosition);
+                if (!safeWorldPosition) {
+                    if (typeof node.destroy === 'function') {
+                        node.destroy();
+                    }
+                    updateStatus(config.strings.placementBlocked || config.strings.ready);
+                    return;
+                }
+                node.setAttr('whdWorldPosition', safeWorldPosition);
 
                 const currentIsoOffset = { isoOffset: isoOffsetRef.current };
                 const currentViewMode = viewModeRef.current;
-                const positioned = worldToViewPosition(worldPosition, currentViewMode, currentIsoOffset);
+                const positioned = worldToViewPosition(safeWorldPosition, currentViewMode, currentIsoOffset);
                 node.position(positioned);
-
-                node.dragBoundFunc(function (pos) {
-                    const isoOptions = { isoOffset: isoOffsetRef.current };
-                    const world = viewToWorldPosition(pos, viewModeRef.current, isoOptions);
-                    const snapped = snapPosition(world, config.gridSize);
-                    return worldToViewPosition(snapped, viewModeRef.current, isoOptions);
-                });
 
                 updateIsometricGeometry(node, config);
                 applyViewModeToNode(node, viewModeRef.current, {
                     isoOffset: isoOffsetRef.current,
-                    gridSize: config.gridSize
+                    gridSize: config.gridSize,
+                    dragBoundFunc: handleDragBound
                 });
 
                 node.on('dragmove transform', function () {
@@ -1719,8 +1932,9 @@
                     const isoOptions = { isoOffset: isoOffsetRef.current };
                     const worldPos = viewToWorldPosition(node.position(), viewModeRef.current, isoOptions);
                     const snapped = snapPosition(worldPos, config.gridSize);
-                    node.setAttr('whdWorldPosition', snapped);
-                    const nextView = worldToViewPosition(snapped, viewModeRef.current, isoOptions);
+                    const resolution = resolveWorldPosition(node, snapped);
+                    node.setAttr('whdWorldPosition', resolution.world);
+                    const nextView = worldToViewPosition(resolution.world, viewModeRef.current, isoOptions);
                     node.position(nextView);
                     if (drawingLayerRef.current) {
                         drawingLayerRef.current.batchDraw();
@@ -1778,7 +1992,14 @@
                 updateDimensionLabel(node, config);
                 updateStatus(getDimensions(node, config));
             },
-            [config, handleOpenToolsModal, updateStatus]
+            [
+                config,
+                findAvailableWorldPosition,
+                handleDragBound,
+                handleOpenToolsModal,
+                resolveWorldPosition,
+                updateStatus
+            ]
         );
 
         const handleAddCustomPolygon = useCallback(
@@ -1791,6 +2012,10 @@
                 const widthValue = parseFloat(customWidth);
                 const depthValue = parseFloat(customDepth);
                 const heightValue = parseFloat(customHeight);
+                const wallThicknessValue = parseFloat(customWallThickness);
+                const allowedThickness = [28, 45, 80];
+                const roundedThickness = Math.round(wallThicknessValue);
+                const thicknessMm = allowedThickness.includes(roundedThickness) ? roundedThickness : NaN;
 
                 if (
                     !Number.isFinite(sidesValue) ||
@@ -1800,7 +2025,9 @@
                     !Number.isFinite(depthValue) ||
                     depthValue <= 0 ||
                     !Number.isFinite(heightValue) ||
-                    heightValue <= 0
+                    heightValue <= 0 ||
+                    !Number.isFinite(wallThicknessValue) ||
+                    Number.isNaN(thicknessMm)
                 ) {
                     setCustomError(config.strings.invalidPolygon);
                     return;
@@ -1811,6 +2038,7 @@
                 const widthMeters = parseFloat(widthValue.toFixed(2));
                 const depthMeters = parseFloat(depthValue.toFixed(2));
                 const heightMeters = parseFloat(heightValue.toFixed(2));
+                const wallThicknessMeters = thicknessMm / 1000;
                 const label = formatTemplate(config.strings.cottageLabel, {
                     width: String(widthMeters),
                     depth: String(depthMeters),
@@ -1825,7 +2053,7 @@
                         width: widthMeters,
                         depth: depthMeters,
                         height: heightMeters,
-                        wallThickness: DEFAULT_WALL_THICKNESS_METERS
+                        wallThickness: wallThicknessMeters
                     },
                     factory: function (options) {
                         const currentGrid = options && options.gridSize ? options.gridSize : config.gridSize;
@@ -1837,7 +2065,7 @@
                             depthMeters: depthMeters,
                             heightMeters: heightMeters,
                             sides: sidesValue,
-                            wallThicknessMeters: DEFAULT_WALL_THICKNESS_METERS
+                            wallThicknessMeters: wallThicknessMeters
                         });
                     }
                 };
@@ -1848,9 +2076,18 @@
                 setCustomWidth('');
                 setCustomDepth('');
                 setCustomHeight('');
+                setCustomWallThickness('45');
                 updateStatus(config.strings.customAdded);
             },
-            [config, customDepth, customHeight, customSides, customWidth, updateStatus]
+            [
+                config,
+                customDepth,
+                customHeight,
+                customSides,
+                customWallThickness,
+                customWidth,
+                updateStatus
+            ]
         );
 
         const handleExport = useCallback(function () {
@@ -2062,6 +2299,25 @@
                                             setCustomError('');
                                         }
                                     })
+                                ),
+                                el(
+                                    'label',
+                                    { className: 'whd-field' },
+                                    el('span', { className: 'whd-field__label' }, config.strings.wallThicknessLabel),
+                                    el(
+                                        'select',
+                                        {
+                                            className: 'whd-field__input',
+                                            value: customWallThickness,
+                                            onChange: function (event) {
+                                                setCustomWallThickness(event.target.value);
+                                                setCustomError('');
+                                            }
+                                        },
+                                        el('option', { value: '28' }, '28'),
+                                        el('option', { value: '45' }, '45'),
+                                        el('option', { value: '80' }, '80')
+                                    )
                                 ),
                                 customError
                                     ? el(

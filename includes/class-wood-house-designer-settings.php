@@ -35,6 +35,7 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
             'export_file_name' => 'wood-house-project',
             'export_dpi'       => 150,
             'casette'          => array(),
+            'doors'            => array(),
         );
 
         /**
@@ -167,6 +168,24 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                     'label_for' => 'casette',
                 )
             );
+
+            add_settings_section(
+                'wood_house_designer_doors',
+                __( 'Fixtures', 'wood-house-designer' ),
+                array( $this, 'render_doors_section_intro' ),
+                'wood_house_designer_settings'
+            );
+
+            add_settings_field(
+                'doors',
+                __( 'Available Doors', 'wood-house-designer' ),
+                array( $this, 'render_doors_field' ),
+                'wood_house_designer_settings',
+                'wood_house_designer_doors',
+                array(
+                    'label_for' => 'doors',
+                )
+            );
         }
 
         /**
@@ -198,9 +217,11 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                 'wood-house-designer-admin',
                 'WoodHouseDesignerAdmin',
                 array(
-                    'addLabel'    => __( 'Add Cottage', 'wood-house-designer' ),
-                    'removeLabel' => __( 'Remove', 'wood-house-designer' ),
-                    'emptyLabel'  => __( 'No cottages configured yet.', 'wood-house-designer' ),
+                    'addLabel'       => __( 'Add Cottage', 'wood-house-designer' ),
+                    'removeLabel'    => __( 'Remove', 'wood-house-designer' ),
+                    'emptyLabel'     => __( 'No cottages configured yet.', 'wood-house-designer' ),
+                    'doorAddLabel'   => __( 'Add Door', 'wood-house-designer' ),
+                    'doorEmptyLabel' => __( 'No doors configured yet.', 'wood-house-designer' ),
                 )
             );
         }
@@ -305,6 +326,42 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                 $sanitized['casette'] = $casette;
             }
 
+            if ( isset( $input['doors'] ) && is_array( $input['doors'] ) ) {
+                $doors = array();
+
+                foreach ( $input['doors'] as $item ) {
+                    if ( ! is_array( $item ) ) {
+                        continue;
+                    }
+
+                    $width        = isset( $item['width'] ) ? (float) $item['width'] : 0.0;
+                    $height       = isset( $item['height'] ) ? (float) $item['height'] : 0.0;
+                    $opening_side = isset( $item['opening_side'] ) ? sanitize_text_field( $item['opening_side'] ) : 'internal';
+                    $panels       = isset( $item['panels'] ) ? (int) $item['panels'] : 1;
+
+                    if ( $width <= 0 || $height <= 0 ) {
+                        continue;
+                    }
+
+                    if ( ! in_array( $opening_side, array( 'internal', 'external' ), true ) ) {
+                        $opening_side = 'internal';
+                    }
+
+                    if ( ! in_array( $panels, array( 1, 2 ), true ) ) {
+                        $panels = 1;
+                    }
+
+                    $doors[] = array(
+                        'width'        => round( $width, 2 ),
+                        'height'       => round( $height, 2 ),
+                        'opening_side' => $opening_side,
+                        'panels'       => $panels,
+                    );
+                }
+
+                $sanitized['doors'] = $doors;
+            }
+
             return $sanitized;
         }
 
@@ -401,6 +458,108 @@ if ( ! class_exists( 'Wood_House_Designer_Settings' ) ) {
                         </label>
                     </div>
                     <button type="button" class="button whd-remove-casetta"><?php esc_html_e( 'Remove', 'wood-house-designer' ); ?></button>
+                </div>
+            </script>
+            <?php
+        }
+
+        /**
+         * Render introduction text for doors section.
+         */
+        public function render_doors_section_intro() {
+            echo '<p>' . esc_html__( 'Configure the catalog of doors available in the designer. Dimensions are expressed in meters. Door thickness is fixed at 0.03 m.', 'wood-house-designer' ) . '</p>';
+        }
+
+        /**
+         * Render door repeatable field.
+         */
+        public function render_doors_field() {
+            $options = $this->get_options();
+            $doors = isset( $options['doors'] ) && is_array( $options['doors'] ) ? $options['doors'] : array();
+            $field_name = self::OPTION_KEY . '[doors]';
+            ?>
+            <div id="whd-door-wrapper" class="whd-door-wrapper" data-field-name="<?php echo esc_attr( $field_name ); ?>">
+                <div id="whd-door-list" class="whd-door-list" data-index="<?php echo esc_attr( count( $doors ) ); ?>">
+                    <?php if ( empty( $doors ) ) : ?>
+                        <p class="whd-door-empty"><?php esc_html_e( 'No doors configured yet.', 'wood-house-designer' ); ?></p>
+                    <?php else : ?>
+                        <?php foreach ( $doors as $index => $door ) :
+                            $width        = isset( $door['width'] ) ? $door['width'] : '';
+                            $height       = isset( $door['height'] ) ? $door['height'] : '';
+                            $opening_side = isset( $door['opening_side'] ) ? $door['opening_side'] : 'internal';
+                            $panels       = isset( $door['panels'] ) ? (int) $door['panels'] : 1;
+                            ?>
+                            <div class="whd-door-row" data-index="<?php echo esc_attr( $index ); ?>">
+                                <div class="whd-door-field">
+                                    <label>
+                                        <?php esc_html_e( 'Width (m)', 'wood-house-designer' ); ?>
+                                        <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name . '[' . $index . '][width]' ); ?>" value="<?php echo esc_attr( $width ); ?>" />
+                                    </label>
+                                </div>
+                                <div class="whd-door-field">
+                                    <label>
+                                        <?php esc_html_e( 'Height (m)', 'wood-house-designer' ); ?>
+                                        <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name . '[' . $index . '][height]' ); ?>" value="<?php echo esc_attr( $height ); ?>" />
+                                    </label>
+                                </div>
+                                <div class="whd-door-field">
+                                    <label>
+                                        <?php esc_html_e( 'Opening side', 'wood-house-designer' ); ?>
+                                        <select name="<?php echo esc_attr( $field_name . '[' . $index . '][opening_side]' ); ?>">
+                                            <option value="internal" <?php selected( $opening_side, 'internal' ); ?>><?php esc_html_e( 'Internal', 'wood-house-designer' ); ?></option>
+                                            <option value="external" <?php selected( $opening_side, 'external' ); ?>><?php esc_html_e( 'External', 'wood-house-designer' ); ?></option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <div class="whd-door-field">
+                                    <label>
+                                        <?php esc_html_e( 'Number of panels', 'wood-house-designer' ); ?>
+                                        <select name="<?php echo esc_attr( $field_name . '[' . $index . '][panels]' ); ?>">
+                                            <option value="1" <?php selected( $panels, 1 ); ?>><?php esc_html_e( 'Single panel', 'wood-house-designer' ); ?></option>
+                                            <option value="2" <?php selected( $panels, 2 ); ?>><?php esc_html_e( 'Double panel', 'wood-house-designer' ); ?></option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <button type="button" class="button whd-remove-door"><?php esc_html_e( 'Remove', 'wood-house-designer' ); ?></button>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+                <button type="button" class="button button-secondary" id="whd-add-door"><?php esc_html_e( 'Add Door', 'wood-house-designer' ); ?></button>
+            </div>
+            <script type="text/html" id="tmpl-whd-door-row">
+                <div class="whd-door-row" data-index="{{index}}">
+                    <div class="whd-door-field">
+                        <label>
+                            <?php esc_html_e( 'Width (m)', 'wood-house-designer' ); ?>
+                            <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name ); ?>[{{index}}][width]" value="" />
+                        </label>
+                    </div>
+                    <div class="whd-door-field">
+                        <label>
+                            <?php esc_html_e( 'Height (m)', 'wood-house-designer' ); ?>
+                            <input type="number" min="0" step="0.01" name="<?php echo esc_attr( $field_name ); ?>[{{index}}][height]" value="" />
+                        </label>
+                    </div>
+                    <div class="whd-door-field">
+                        <label>
+                            <?php esc_html_e( 'Opening side', 'wood-house-designer' ); ?>
+                            <select name="<?php echo esc_attr( $field_name ); ?>[{{index}}][opening_side]">
+                                <option value="internal" selected="selected"><?php esc_html_e( 'Internal', 'wood-house-designer' ); ?></option>
+                                <option value="external"><?php esc_html_e( 'External', 'wood-house-designer' ); ?></option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="whd-door-field">
+                        <label>
+                            <?php esc_html_e( 'Number of panels', 'wood-house-designer' ); ?>
+                            <select name="<?php echo esc_attr( $field_name ); ?>[{{index}}][panels]">
+                                <option value="1" selected="selected"><?php esc_html_e( 'Single panel', 'wood-house-designer' ); ?></option>
+                                <option value="2"><?php esc_html_e( 'Double panel', 'wood-house-designer' ); ?></option>
+                            </select>
+                        </label>
+                    </div>
+                    <button type="button" class="button whd-remove-door"><?php esc_html_e( 'Remove', 'wood-house-designer' ); ?></button>
                 </div>
             </script>
             <?php

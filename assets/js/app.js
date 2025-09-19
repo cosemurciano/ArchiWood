@@ -19,6 +19,7 @@
     const DEFAULT_STRINGS = {
         appTitle: 'Wood House Designer',
         shapesHeading: 'Cottages',
+        fixturesHeading: 'Fixtures',
         actionsHeading: 'Actions',
         exportButton: 'Export PNG',
         ready: 'Ready. Use the toolbox to add elements.',
@@ -50,12 +51,23 @@
         placementBlocked: 'Unable to place cottage without intersections.',
         adminCottagesTitle: 'Catalog cottages',
         userCottagesTitle: 'Your cottages',
+        adminDoorsTitle: 'Catalog doors',
+        noDoors: 'No doors configured yet.',
+        doorLabel: 'Door %width%m × %height%m',
+        doorDescription: '%panels% panels · %opening%',
+        doorOpeningInternal: 'Internal opening',
+        doorOpeningExternal: 'External opening',
+        doorStatus: 'Selected door - %width%m × %height%m × %thickness%m · %panels% panels · %opening%',
+        doorPlacementBlocked: 'Unable to place the door. Add or select a cottage first.',
         toolsMenuTitle: 'Cottage tools',
         toolsDimensionsLabel: 'Dimensions',
         toolsPositionLabel: 'Grid position',
         toolsDelete: 'Delete cottage',
         toolsClose: 'Close',
-        toolsRemoved: 'Cottage removed.'
+        toolsRemoved: 'Cottage removed.',
+        doorToolsRemoved: 'Door removed.',
+        doorToolsMenuTitle: 'Door tools',
+        doorToolsDelete: 'Delete door'
     };
 
     const ISO_ANGLE = Math.PI / 6;
@@ -65,10 +77,39 @@
     const ISO_INV_SIN = ISO_SIN === 0 ? 0 : 1 / ISO_SIN;
     const CONTROL_BUTTON_SIZE = 24;
     const DEFAULT_WALL_THICKNESS_METERS = 0.045;
+    const DOOR_THICKNESS_METERS = 0.03;
     const ISO_CENTER_PADDING = 48;
     const MIN_ZOOM = 0.5;
     const MAX_ZOOM = 2;
     const ZOOM_STEP = 0.2;
+
+    let NODE_ID_COUNTER = 0;
+
+    function generateNodeId(prefix) {
+        NODE_ID_COUNTER += 1;
+        return prefix + '-' + NODE_ID_COUNTER;
+    }
+
+    function clamp(value, min, max) {
+        if (!Number.isFinite(value)) {
+            return min;
+        }
+        if (Number.isFinite(min) && value < min) {
+            return min;
+        }
+        if (Number.isFinite(max) && value > max) {
+            return max;
+        }
+        return value;
+    }
+
+    function isDoorNode(node) {
+        return Boolean(node && typeof node.getAttr === 'function' && node.getAttr('whdCategory') === 'door');
+    }
+
+    function isCottageNode(node) {
+        return Boolean(node && typeof node.getAttr === 'function' && node.getAttr('whdCategory') === 'cottage');
+    }
 
     function hasValidWallThickness(wallThicknessPx, widthPx, depthPx) {
         const normalizedThickness = wallThicknessPx > 0 ? wallThicknessPx : 0;
@@ -1106,6 +1147,10 @@
             name: 'cottage whd-draggable'
         });
 
+        group.setAttr('whdCategory', 'cottage');
+        group.setAttr('whdNodeId', generateNodeId('cottage'));
+        group.setAttr('whdAttachedDoors', []);
+
         const initialWorld = snapPosition({ x: gridSize * 2, y: gridSize * 2 }, gridSize);
         group.position(initialWorld);
         group.setAttr('whdWorldPosition', initialWorld);
@@ -1140,6 +1185,266 @@
         return group;
     }
 
+    function updateDoorGeometry(group) {
+        if (!group || typeof group.getAttr !== 'function') {
+            return;
+        }
+
+        const doorPixels = group.getAttr('whdDoorPixel') || {};
+        const doorData = group.getAttr('whdDoorData') || {};
+        const orientation = group.getAttr('whdDoorOrientation') || 'north';
+        const widthPx = Number.isFinite(doorPixels.widthPx) ? doorPixels.widthPx : 0;
+        const thicknessPx = Number.isFinite(doorPixels.thicknessPx) ? doorPixels.thicknessPx : 0;
+        const heightPx = Number.isFinite(doorPixels.heightPx) ? doorPixels.heightPx : 0;
+        const panels = doorData.panels === 2 ? 2 : 1;
+        const isVertical = orientation === 'east' || orientation === 'west';
+        const boundingWidth = isVertical ? thicknessPx : widthPx;
+        const boundingDepth = isVertical ? widthPx : thicknessPx;
+
+        group.setAttr('whdPixelSize', {
+            widthPx: boundingWidth,
+            depthPx: boundingDepth,
+            heightPx: heightPx,
+            wallThicknessPx: thicknessPx
+        });
+
+        const topView = group.findOne('.whd-top-view');
+        if (topView) {
+            topView.destroyChildren();
+
+            topView.add(
+                new Konva.Rect({
+                    x: 0,
+                    y: 0,
+                    width: boundingWidth,
+                    height: boundingDepth,
+                    fill: 'rgba(16, 185, 129, 0.25)',
+                    stroke: '#0f766e',
+                    strokeWidth: 2,
+                    name: 'whd-door-top'
+                })
+            );
+
+            if (panels === 2) {
+                if (isVertical) {
+                    topView.add(
+                        new Konva.Line({
+                            points: [0, boundingDepth / 2, boundingWidth, boundingDepth / 2],
+                            stroke: '#0f766e',
+                            strokeWidth: 1,
+                            dash: [4, 2]
+                        })
+                    );
+                } else {
+                    topView.add(
+                        new Konva.Line({
+                            points: [boundingWidth / 2, 0, boundingWidth / 2, boundingDepth],
+                            stroke: '#0f766e',
+                            strokeWidth: 1,
+                            dash: [4, 2]
+                        })
+                    );
+                }
+            }
+
+            const openingSide = doorData.openingSide === 'external' ? 'E' : 'I';
+            const label = new Konva.Text({
+                x: boundingWidth / 2,
+                y: boundingDepth / 2 - 6,
+                text: openingSide,
+                fontSize: 12,
+                fontStyle: 'bold',
+                fill: '#0f766e',
+                align: 'center'
+            });
+            label.offsetX(label.width() / 2);
+            topView.add(label);
+
+            const topButton = ensureControlButton(group, topView, 'top');
+            if (topButton) {
+                const buttonX = Math.max(4, boundingWidth - CONTROL_BUTTON_SIZE - 4);
+                topButton.position({ x: buttonX, y: 4 });
+                topButton.moveToTop();
+            }
+        }
+
+        const isoView = group.findOne('.whd-iso-view');
+        if (isoView) {
+            isoView.destroyChildren();
+
+            isoView.add(
+                new Konva.Rect({
+                    x: 0,
+                    y: 0,
+                    width: widthPx,
+                    height: heightPx,
+                    fill: 'rgba(16, 185, 129, 0.35)',
+                    stroke: '#0f766e',
+                    strokeWidth: 1.5,
+                    cornerRadius: 2,
+                    name: 'whd-door-iso'
+                })
+            );
+
+            if (panels === 2) {
+                isoView.add(
+                    new Konva.Line({
+                        points: [widthPx / 2, 0, widthPx / 2, heightPx],
+                        stroke: '#0f766e',
+                        strokeWidth: 1,
+                        dash: [4, 2]
+                    })
+                );
+            }
+
+            const isoButton = ensureControlButton(group, isoView, 'iso');
+            if (isoButton) {
+                const buttonX = Math.max(4, widthPx - CONTROL_BUTTON_SIZE - 4);
+                const buttonY = Math.max(4, 4);
+                isoButton.position({ x: buttonX, y: buttonY });
+                isoButton.moveToTop();
+            }
+        }
+
+        group.rotation(0);
+    }
+
+    function applyDoorOrientation(group, orientation) {
+        if (!group) {
+            return;
+        }
+
+        const allowed = ['north', 'south', 'east', 'west'];
+        const normalized = allowed.includes(orientation) ? orientation : 'north';
+        group.setAttr('whdDoorOrientation', normalized);
+        updateDoorGeometry(group);
+    }
+
+    function computeDoorWorldFromHostRect(rect, doorPixels, orientation, ratio) {
+        if (!rect || !doorPixels) {
+            return null;
+        }
+
+        const widthPx = Number.isFinite(doorPixels.widthPx) ? Math.abs(doorPixels.widthPx) : 0;
+        const thicknessPx = Number.isFinite(doorPixels.thicknessPx) ? Math.abs(doorPixels.thicknessPx) : 0;
+
+        if (widthPx <= 0 || thicknessPx <= 0) {
+            return null;
+        }
+
+        const clampedRatio = clamp(Number.isFinite(ratio) ? ratio : 0.5, 0, 1);
+
+        if (orientation === 'north') {
+            if (widthPx > rect.width) {
+                return null;
+            }
+            const minX = rect.x;
+            const maxX = rect.x + Math.max(rect.width - widthPx, 0);
+            const centerX = clamp(rect.x + clampedRatio * rect.width, rect.x + widthPx / 2, rect.x + rect.width - widthPx / 2);
+            const x = clamp(centerX - widthPx / 2, minX, maxX);
+            return { x: x, y: rect.y - thicknessPx };
+        }
+
+        if (orientation === 'south') {
+            if (widthPx > rect.width) {
+                return null;
+            }
+            const minX = rect.x;
+            const maxX = rect.x + Math.max(rect.width - widthPx, 0);
+            const centerX = clamp(rect.x + clampedRatio * rect.width, rect.x + widthPx / 2, rect.x + rect.width - widthPx / 2);
+            const x = clamp(centerX - widthPx / 2, minX, maxX);
+            return { x: x, y: rect.y + rect.height };
+        }
+
+        if (orientation === 'west') {
+            if (widthPx > rect.height) {
+                return null;
+            }
+            const minY = rect.y;
+            const maxY = rect.y + Math.max(rect.height - widthPx, 0);
+            const centerY = clamp(rect.y + clampedRatio * rect.height, rect.y + widthPx / 2, rect.y + rect.height - widthPx / 2);
+            const y = clamp(centerY - widthPx / 2, minY, maxY);
+            return { x: rect.x - thicknessPx, y: y };
+        }
+
+        if (orientation === 'east') {
+            if (widthPx > rect.height) {
+                return null;
+            }
+            const minY = rect.y;
+            const maxY = rect.y + Math.max(rect.height - widthPx, 0);
+            const centerY = clamp(rect.y + clampedRatio * rect.height, rect.y + widthPx / 2, rect.y + rect.height - widthPx / 2);
+            const y = clamp(centerY - widthPx / 2, minY, maxY);
+            return { x: rect.x + rect.width, y: y };
+        }
+
+        return null;
+    }
+
+    function createDoorNode(options) {
+        if (typeof Konva === 'undefined') {
+            return null;
+        }
+
+        const normalized = options || {};
+        const gridSize = normalized.gridSize || 50;
+        const scaleRatio = normalized.scaleRatio && normalized.scaleRatio > 0 ? normalized.scaleRatio : 1;
+        const pixelsPerMeter = gridSize / scaleRatio;
+        const widthMeters = normalized.widthMeters && normalized.widthMeters > 0 ? normalized.widthMeters : 0.9;
+        const heightMeters = normalized.heightMeters && normalized.heightMeters > 0 ? normalized.heightMeters : 2.1;
+        const panels = normalized.panels === 2 ? 2 : 1;
+        const openingSide = normalized.openingSide === 'external' ? 'external' : 'internal';
+        const thicknessMeters = DOOR_THICKNESS_METERS;
+
+        const widthPx = widthMeters * pixelsPerMeter;
+        const thicknessPx = thicknessMeters * pixelsPerMeter;
+        const heightPx = heightMeters * pixelsPerMeter;
+
+        const group = new Konva.Group({
+            x: gridSize * 2,
+            y: gridSize * 2,
+            draggable: true,
+            name: 'door whd-draggable'
+        });
+
+        group.setAttr('whdCategory', 'door');
+        group.setAttr('whdNodeId', generateNodeId('door'));
+        group.setAttr('whdDoorData', {
+            widthMeters: widthMeters,
+            heightMeters: heightMeters,
+            thicknessMeters: thicknessMeters,
+            panels: panels,
+            openingSide: openingSide
+        });
+        group.setAttr('whdDoorPixel', {
+            widthPx: widthPx,
+            thicknessPx: thicknessPx,
+            heightPx: heightPx
+        });
+        group.setAttr('whdDoorOrientation', 'north');
+        group.setAttr('whdDoorOffsetRatio', 0.5);
+        group.setAttr('whdDoorHostId', null);
+
+        const initialWorld = snapPosition({ x: gridSize * 2, y: gridSize * 2 }, gridSize);
+        group.position(initialWorld);
+        group.setAttr('whdWorldPosition', initialWorld);
+        group.setAttr('whdDimensions', {
+            widthMeters: widthMeters,
+            depthMeters: thicknessMeters,
+            heightMeters: heightMeters
+        });
+
+        const topView = new Konva.Group({ name: 'whd-top-view' });
+        const isoView = new Konva.Group({ name: 'whd-iso-view', visible: false });
+
+        group.add(topView);
+        group.add(isoView);
+
+        updateDoorGeometry(group);
+
+        return group;
+    }
+
     function buildConfig(config) {
         const normalized = config || {};
         const strings = Object.assign({}, DEFAULT_STRINGS, normalized.strings || {});
@@ -1152,6 +1457,7 @@
             exportFileName: normalized.exportFileName || 'wood-house-project',
             exportDpi: normalized.exportDpi && normalized.exportDpi > 0 ? normalized.exportDpi : 150,
             casette: Array.isArray(normalized.casette) ? normalized.casette : [],
+            doors: Array.isArray(normalized.doors) ? normalized.doors : [],
             appVersion: normalized.appVersion || '1.0.0',
             strings: strings
         };
@@ -1196,6 +1502,7 @@
                     wallThickness: wallThicknessMeters
                 },
                 origin: 'admin',
+                type: 'cottage',
                 factory: function (options) {
                     const currentGrid = options && options.gridSize ? options.gridSize : gridSize;
                     const currentScale = options && options.scaleRatio ? options.scaleRatio : scaleRatio;
@@ -1206,6 +1513,71 @@
                         depthMeters: depth,
                         heightMeters: heightMeters,
                         wallThicknessMeters: wallThicknessMeters
+                    });
+                }
+            });
+        }
+
+        return items;
+    }
+
+    function getDoorsConfig(config) {
+        const templates = Array.isArray(config.doors) ? config.doors : [];
+        const items = [];
+        const labelTemplate = config.strings.doorLabel || DEFAULT_STRINGS.doorLabel;
+        const descriptionTemplate = config.strings.doorDescription || DEFAULT_STRINGS.doorDescription;
+        const gridSize = config.gridSize || 50;
+        const scaleRatio = config.scaleRatio || 1;
+
+        for (let index = 0; index < templates.length; index++) {
+            const raw = templates[index] || {};
+            const width = parseFloat(raw.width);
+            const heightValue = parseFloat(raw.height);
+            const opening = typeof raw.opening_side === 'string' ? raw.opening_side : 'internal';
+            const panelsValue = parseInt(raw.panels, 10);
+
+            if (!width || width <= 0 || !heightValue || heightValue <= 0) {
+                continue;
+            }
+
+            const panels = panelsValue === 2 ? 2 : 1;
+            const openingLabel = opening === 'external'
+                ? config.strings.doorOpeningExternal || DEFAULT_STRINGS.doorOpeningExternal
+                : config.strings.doorOpeningInternal || DEFAULT_STRINGS.doorOpeningInternal;
+
+            const label = formatTemplate(labelTemplate, {
+                width: String(parseFloat(width.toFixed(2))),
+                height: String(parseFloat(heightValue.toFixed(2)))
+            });
+
+            const description = formatTemplate(descriptionTemplate, {
+                panels: String(panels),
+                opening: openingLabel
+            });
+
+            items.push({
+                id: 'door-' + index,
+                label: label,
+                description: description,
+                dimensions: {
+                    width: width,
+                    height: heightValue,
+                    thickness: DOOR_THICKNESS_METERS,
+                    panels: panels,
+                    openingSide: opening
+                },
+                origin: 'admin',
+                type: 'door',
+                factory: function (options) {
+                    const currentGrid = options && options.gridSize ? options.gridSize : gridSize;
+                    const currentScale = options && options.scaleRatio ? options.scaleRatio : scaleRatio;
+                    return createDoorNode({
+                        gridSize: currentGrid,
+                        scaleRatio: currentScale,
+                        widthMeters: width,
+                        heightMeters: heightValue,
+                        panels: panels,
+                        openingSide: opening
                     });
                 }
             });
@@ -1352,6 +1724,27 @@
 
         const gridSize = config.gridSize || 50;
         const scaleRatio = config.scaleRatio || 1;
+        if (isDoorNode(node)) {
+            const doorData = node.getAttr('whdDoorData') || {};
+            const widthMeters = Number.isFinite(doorData.widthMeters) ? doorData.widthMeters : 0;
+            const heightMeters = Number.isFinite(doorData.heightMeters) ? doorData.heightMeters : 0;
+            const thicknessMeters = Number.isFinite(doorData.thicknessMeters)
+                ? doorData.thicknessMeters
+                : DOOR_THICKNESS_METERS;
+            const panels = doorData.panels === 2 ? '2' : '1';
+            const openingLabel = doorData.openingSide === 'external'
+                ? config.strings.doorOpeningExternal || DEFAULT_STRINGS.doorOpeningExternal
+                : config.strings.doorOpeningInternal || DEFAULT_STRINGS.doorOpeningInternal;
+
+            return formatTemplate(config.strings.doorStatus || DEFAULT_STRINGS.doorStatus, {
+                width: widthMeters.toFixed(2),
+                height: heightMeters.toFixed(2),
+                thickness: thicknessMeters.toFixed(3),
+                panels: panels,
+                opening: openingLabel
+            });
+        }
+
         const dimensions = node.getAttr('whdDimensions');
         let widthMeters;
         let depthMeters;
@@ -1400,6 +1793,9 @@
         const config = configRef.current;
         const [adminCottages] = useState(function () {
             return getCottagesConfig(config);
+        });
+        const [adminDoors] = useState(function () {
+            return getDoorsConfig(config);
         });
         const [userCottages, setUserCottages] = useState([]);
 
@@ -1455,6 +1851,243 @@
             };
         }, []);
 
+        const findNodeByWhdId = useCallback(
+            function (nodeId) {
+                if (!nodeId || !drawingLayerRef.current) {
+                    return null;
+                }
+
+                const children = drawingLayerRef.current.getChildren();
+                for (let index = 0; index < children.length; index++) {
+                    const child = children[index];
+                    if (!child || typeof child.getAttr !== 'function') {
+                        continue;
+                    }
+                    if (child.getAttr('whdNodeId') === nodeId) {
+                        return child;
+                    }
+                }
+
+                return null;
+            },
+            []
+        );
+
+        const detachDoorFromHost = useCallback(
+            function (doorNode) {
+                if (!doorNode || !isDoorNode(doorNode)) {
+                    return;
+                }
+
+                const hostId = doorNode.getAttr('whdDoorHostId');
+                const doorId = doorNode.getAttr('whdNodeId');
+
+                if (!hostId || !doorId) {
+                    doorNode.setAttr('whdDoorHostId', null);
+                    return;
+                }
+
+                const hostNode = findNodeByWhdId(hostId);
+                if (!hostNode) {
+                    doorNode.setAttr('whdDoorHostId', null);
+                    return;
+                }
+
+                const attachments = hostNode.getAttr('whdAttachedDoors');
+                if (Array.isArray(attachments)) {
+                    const filtered = attachments.filter(function (id) {
+                        return id !== doorId;
+                    });
+                    hostNode.setAttr('whdAttachedDoors', filtered);
+                }
+
+                doorNode.setAttr('whdDoorHostId', null);
+            },
+            [findNodeByWhdId]
+        );
+
+        const registerDoorWithHost = useCallback(
+            function (doorNode, hostNode) {
+                if (!doorNode || !hostNode || !isDoorNode(doorNode) || !isCottageNode(hostNode)) {
+                    return;
+                }
+
+                const doorId = doorNode.getAttr('whdNodeId');
+                const hostId = hostNode.getAttr('whdNodeId');
+
+                if (!doorId || !hostId) {
+                    return;
+                }
+
+                const currentHostId = doorNode.getAttr('whdDoorHostId');
+                if (currentHostId && currentHostId !== hostId) {
+                    detachDoorFromHost(doorNode);
+                }
+
+                let attachments = hostNode.getAttr('whdAttachedDoors');
+                if (!Array.isArray(attachments)) {
+                    attachments = [];
+                }
+
+                if (!attachments.includes(doorId)) {
+                    attachments = attachments.concat(doorId);
+                    hostNode.setAttr('whdAttachedDoors', attachments);
+                }
+
+                doorNode.setAttr('whdDoorHostId', hostId);
+            },
+            [detachDoorFromHost]
+        );
+
+        const updateDoorsForHost = useCallback(
+            function (hostNode) {
+                if (!hostNode || !isCottageNode(hostNode)) {
+                    return;
+                }
+
+                const attachments = hostNode.getAttr('whdAttachedDoors');
+                if (!Array.isArray(attachments) || attachments.length === 0) {
+                    return;
+                }
+
+                const rect = getNodeFootprintRect(hostNode);
+                if (!rect) {
+                    return;
+                }
+
+                attachments.forEach(function (doorId) {
+                    const doorNode = findNodeByWhdId(doorId);
+                    if (!doorNode) {
+                        return;
+                    }
+
+                    const orientation = doorNode.getAttr('whdDoorOrientation') || 'north';
+                    const ratio = doorNode.getAttr('whdDoorOffsetRatio');
+                    const doorPixels = doorNode.getAttr('whdDoorPixel');
+
+                    const newWorld = computeDoorWorldFromHostRect(rect, doorPixels, orientation, ratio);
+                    if (!newWorld) {
+                        return;
+                    }
+
+                    doorNode.setAttr('whdWorldPosition', newWorld);
+                    const isoOptions = { isoOffset: isoOffsetRef.current };
+                    const nextPosition = worldToViewPosition(newWorld, viewModeRef.current, isoOptions);
+                    doorNode.position(nextPosition);
+                    updateDoorGeometry(doorNode);
+                });
+
+                if (drawingLayerRef.current) {
+                    drawingLayerRef.current.batchDraw();
+                }
+            },
+            [findNodeByWhdId, getNodeFootprintRect]
+        );
+
+        const resolveDoorWorldPosition = useCallback(
+            function (doorNode, desiredWorld) {
+                if (!doorNode || !isDoorNode(doorNode)) {
+                    return { accepted: false, world: desiredWorld };
+                }
+
+                const previous = doorNode.getAttr('whdWorldPosition');
+                const fallback = previous
+                    ? { x: previous.x, y: previous.y }
+                    : { x: desiredWorld.x, y: desiredWorld.y };
+
+                if (!drawingLayerRef.current) {
+                    return { accepted: false, world: fallback };
+                }
+
+                const doorPixels = doorNode.getAttr('whdDoorPixel');
+                if (!doorPixels) {
+                    return { accepted: false, world: fallback };
+                }
+
+                const widthPx = Number.isFinite(doorPixels.widthPx) ? doorPixels.widthPx : 0;
+                const thicknessPx = Number.isFinite(doorPixels.thicknessPx) ? doorPixels.thicknessPx : 0;
+
+                if (widthPx <= 0 || thicknessPx <= 0) {
+                    return { accepted: false, world: fallback };
+                }
+
+                const pointerNorth = {
+                    x: desiredWorld.x + widthPx / 2,
+                    y: desiredWorld.y + thicknessPx / 2
+                };
+                const pointerEast = {
+                    x: desiredWorld.x + thicknessPx / 2,
+                    y: desiredWorld.y + widthPx / 2
+                };
+
+                const children = drawingLayerRef.current.getChildren();
+                let best = null;
+
+                for (let index = 0; index < children.length; index++) {
+                    const candidateHost = children[index];
+                    if (!candidateHost || !isCottageNode(candidateHost)) {
+                        continue;
+                    }
+
+                    const rect = getNodeFootprintRect(candidateHost);
+                    if (!rect) {
+                        continue;
+                    }
+
+                    const orientations = ['north', 'south', 'east', 'west'];
+
+                    for (let oIndex = 0; oIndex < orientations.length; oIndex++) {
+                        const orientation = orientations[oIndex];
+                        const pointer = orientation === 'east' || orientation === 'west' ? pointerEast : pointerNorth;
+                        const ratioBase = orientation === 'east' || orientation === 'west'
+                            ? rect.height > 0 ? (pointer.y - rect.y) / rect.height : 0.5
+                            : rect.width > 0 ? (pointer.x - rect.x) / rect.width : 0.5;
+                        const candidateWorld = computeDoorWorldFromHostRect(rect, doorPixels, orientation, ratioBase);
+                        if (!candidateWorld) {
+                            continue;
+                        }
+
+                        const center = orientation === 'east' || orientation === 'west'
+                            ? {
+                                  x: candidateWorld.x + thicknessPx / 2,
+                                  y: candidateWorld.y + widthPx / 2
+                              }
+                            : {
+                                  x: candidateWorld.x + widthPx / 2,
+                                  y: candidateWorld.y + thicknessPx / 2
+                              };
+
+                        const distance = Math.hypot(pointer.x - center.x, pointer.y - center.y);
+                        const normalizedRatio = orientation === 'east' || orientation === 'west'
+                            ? rect.height > 0 ? clamp((center.y - rect.y) / rect.height, 0, 1) : 0.5
+                            : rect.width > 0 ? clamp((center.x - rect.x) / rect.width, 0, 1) : 0.5;
+
+                        if (!best || distance < best.distance) {
+                            best = {
+                                host: candidateHost,
+                                world: candidateWorld,
+                                orientation: orientation,
+                                distance: distance,
+                                ratio: normalizedRatio
+                            };
+                        }
+                    }
+                }
+
+                if (!best) {
+                    return { accepted: false, world: fallback };
+                }
+
+                applyDoorOrientation(doorNode, best.orientation);
+                doorNode.setAttr('whdDoorOffsetRatio', best.ratio);
+                registerDoorWithHost(doorNode, best.host);
+                updateDoorGeometry(doorNode);
+
+                return { accepted: true, world: best.world };
+            },
+            [getNodeFootprintRect, registerDoorWithHost]
+        );
+
         const isPositionWithinStage = useCallback(
             function (node, worldPosition) {
                 const rect = getNodeFootprintRect(node, worldPosition);
@@ -1490,6 +2123,37 @@
 
         const hasCollision = useCallback(
             function (node, worldPosition) {
+                if (isDoorNode(node)) {
+                    const rect = getNodeFootprintRect(node, worldPosition);
+                    if (!rect) {
+                        return false;
+                    }
+
+                    const layer = drawingLayerRef.current;
+                    if (!layer) {
+                        return false;
+                    }
+
+                    const children = layer.getChildren();
+                    for (let index = 0; index < children.length; index++) {
+                        const other = children[index];
+                        if (other === node || !isDoorNode(other)) {
+                            continue;
+                        }
+
+                        const otherRect = getNodeFootprintRect(other);
+                        if (!otherRect) {
+                            continue;
+                        }
+
+                        if (rectanglesOverlap(rect, otherRect)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+
                 const targetRect = getNodeFootprintRect(node, worldPosition);
                 if (!targetRect) {
                     return false;
@@ -1511,6 +2175,10 @@
                         continue;
                     }
 
+                    if (isDoorNode(other)) {
+                        continue;
+                    }
+
                     const otherRect = getNodeFootprintRect(other);
                     if (!otherRect) {
                         continue;
@@ -1528,6 +2196,27 @@
 
         const resolveWorldPosition = useCallback(
             function (node, desiredWorld) {
+                if (isDoorNode(node)) {
+                    const resolution = resolveDoorWorldPosition(node, desiredWorld);
+                    if (!resolution.accepted) {
+                        const fallback = node.getAttr('whdWorldPosition');
+                        return {
+                            accepted: false,
+                            world: fallback ? { x: fallback.x, y: fallback.y } : resolution.world
+                        };
+                    }
+
+                    if (!isPositionWithinStage(node, resolution.world)) {
+                        const fallback = node.getAttr('whdWorldPosition');
+                        return {
+                            accepted: false,
+                            world: fallback ? { x: fallback.x, y: fallback.y } : resolution.world
+                        };
+                    }
+
+                    return resolution;
+                }
+
                 const previous = node.getAttr('whdWorldPosition');
                 const fallback = previous
                     ? { x: previous.x, y: previous.y }
@@ -1543,11 +2232,16 @@
 
                 return { accepted: true, world: desiredWorld };
             },
-            [hasCollision, isPositionWithinStage]
+            [hasCollision, isPositionWithinStage, resolveDoorWorldPosition]
         );
 
         const findAvailableWorldPosition = useCallback(
             function (node, startWorld) {
+                if (isDoorNode(node)) {
+                    const resolution = resolveDoorWorldPosition(node, startWorld || node.getAttr('whdWorldPosition') || { x: 0, y: 0 });
+                    return resolution.accepted ? resolution.world : null;
+                }
+
                 const grid = config.gridSize && config.gridSize > 0 ? config.gridSize : 1;
                 const base = startWorld || { x: 0, y: 0 };
                 const normalizedBase = {
@@ -1581,7 +2275,7 @@
 
                 return null;
             },
-            [config.gridSize, hasCollision, isPositionWithinStage]
+            [config.gridSize, hasCollision, isPositionWithinStage, resolveDoorWorldPosition]
         );
 
         const handleDragBound = useCallback(
@@ -1864,6 +2558,16 @@
                     y: parseFloat(((snappedPosition.y / config.gridSize) * config.scaleRatio).toFixed(2))
                 };
 
+                const isDoor = isDoorNode(node);
+                const labels = {
+                    title: isDoor
+                        ? config.strings.doorToolsMenuTitle || config.strings.toolsMenuTitle
+                        : config.strings.toolsMenuTitle,
+                    delete: isDoor
+                        ? config.strings.doorToolsDelete || config.strings.toolsDelete
+                        : config.strings.toolsDelete
+                };
+
                 setToolsModal({
                     node: node,
                     dimensions: {
@@ -1871,7 +2575,8 @@
                         depth: depthMeters,
                         height: heightMeters
                     },
-                    position: positionMeters
+                    position: positionMeters,
+                    labels: labels
                 });
             },
             [config]
@@ -1889,6 +2594,20 @@
                 }
 
                 const node = toolsModal.node;
+                if (isDoorNode(node)) {
+                    detachDoorFromHost(node);
+                } else if (isCottageNode(node)) {
+                    const attachments = node.getAttr('whdAttachedDoors');
+                    if (Array.isArray(attachments)) {
+                        attachments.forEach(function (doorId) {
+                            const door = findNodeByWhdId(doorId);
+                            if (door) {
+                                detachDoorFromHost(door);
+                                door.destroy();
+                            }
+                        });
+                    }
+                }
                 node.destroy();
 
                 if (drawingLayerRef.current) {
@@ -1900,9 +2619,13 @@
                 }
 
                 setToolsModal(null);
-                updateStatus(config.strings.toolsRemoved || config.strings.ready);
+                if (isDoorNode(node)) {
+                    updateStatus(config.strings.doorToolsRemoved || config.strings.ready);
+                } else {
+                    updateStatus(config.strings.toolsRemoved || config.strings.ready);
+                }
             },
-            [config, toolsModal, updateStatus]
+            [config, detachDoorFromHost, findNodeByWhdId, toolsModal, updateStatus]
         );
 
         useEffect(function () {
@@ -2084,6 +2807,7 @@
                     return;
                 }
 
+                const isDoor = isDoorNode(node);
                 let worldPosition = node.getAttr('whdWorldPosition');
                 if (!worldPosition) {
                     worldPosition = snapPosition(node.position(), config.gridSize);
@@ -2094,7 +2818,11 @@
                     if (typeof node.destroy === 'function') {
                         node.destroy();
                     }
-                    updateStatus(config.strings.placementBlocked || config.strings.ready);
+                    if (isDoor) {
+                        updateStatus(config.strings.doorPlacementBlocked || config.strings.ready);
+                    } else {
+                        updateStatus(config.strings.placementBlocked || config.strings.ready);
+                    }
                     return;
                 }
                 node.setAttr('whdWorldPosition', safeWorldPosition);
@@ -2104,7 +2832,11 @@
                 const positioned = worldToViewPosition(safeWorldPosition, currentViewMode, currentIsoOffset);
                 node.position(positioned);
 
-                updateIsometricGeometry(node, config);
+                if (isDoor) {
+                    updateDoorGeometry(node);
+                } else {
+                    updateIsometricGeometry(node, config);
+                }
                 applyViewModeToNode(node, viewModeRef.current, {
                     isoOffset: isoOffsetRef.current,
                     gridSize: config.gridSize,
@@ -2112,9 +2844,14 @@
                 });
 
                 node.on('dragmove transform', function () {
-                    updateDimensionLabel(node, config);
+                    if (!isDoor) {
+                        updateDimensionLabel(node, config);
+                    }
                     if (transformerRef.current && transformerRef.current.nodes().includes(node)) {
                         updateStatus(getDimensions(node, config));
+                    }
+                    if (!isDoor && isCottageNode(node)) {
+                        updateDoorsForHost(node);
                     }
                 });
 
@@ -2129,40 +2866,55 @@
                     if (drawingLayerRef.current) {
                         drawingLayerRef.current.batchDraw();
                     }
-                    updateDimensionLabel(node, config);
+                    if (!isDoor) {
+                        updateDimensionLabel(node, config);
+                        if (isCottageNode(node)) {
+                            updateDoorsForHost(node);
+                        }
+                    } else {
+                        updateDoorGeometry(node);
+                    }
                     if (transformerRef.current && transformerRef.current.nodes().includes(node)) {
                         updateStatus(getDimensions(node, config));
                     }
                 });
 
                 node.on('transformend', function () {
-                    const dims = node.getAttr('whdDimensions');
-                    if (!dims) {
-                        return;
+                    if (isDoor) {
+                        node.rotation(0);
+                        updateDoorGeometry(node);
+                    } else {
+                        const dims = node.getAttr('whdDimensions');
+                        if (!dims) {
+                            return;
+                        }
+
+                        const scaleX = node.scaleX() || 1;
+                        const scaleY = node.scaleY() || 1;
+                        const averageScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+                        const nextWidth = parseFloat((dims.widthMeters * scaleX).toFixed(2));
+                        const nextDepth = parseFloat((dims.depthMeters * scaleY).toFixed(2));
+                        const baseThickness =
+                            dims.wallThicknessMeters && dims.wallThicknessMeters > 0
+                                ? dims.wallThicknessMeters
+                                : DEFAULT_WALL_THICKNESS_METERS;
+                        const scaledThickness = baseThickness * averageScale;
+                        const maxThickness = Math.min(nextWidth / 2, nextDepth / 2);
+                        const nextThickness = parseFloat(Math.min(scaledThickness, maxThickness).toFixed(3));
+                        const newDimensions = {
+                            widthMeters: nextWidth,
+                            depthMeters: nextDepth,
+                            heightMeters: dims.heightMeters,
+                            wallThicknessMeters: nextThickness
+                        };
+
+                        node.setAttr('whdDimensions', newDimensions);
+                        node.scale({ x: 1, y: 1 });
+                        updateIsometricGeometry(node, config);
+                        if (isCottageNode(node)) {
+                            updateDoorsForHost(node);
+                        }
                     }
-
-                    const scaleX = node.scaleX() || 1;
-                    const scaleY = node.scaleY() || 1;
-                    const averageScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
-                    const nextWidth = parseFloat((dims.widthMeters * scaleX).toFixed(2));
-                    const nextDepth = parseFloat((dims.depthMeters * scaleY).toFixed(2));
-                    const baseThickness =
-                        dims.wallThicknessMeters && dims.wallThicknessMeters > 0
-                            ? dims.wallThicknessMeters
-                            : DEFAULT_WALL_THICKNESS_METERS;
-                    const scaledThickness = baseThickness * averageScale;
-                    const maxThickness = Math.min(nextWidth / 2, nextDepth / 2);
-                    const nextThickness = parseFloat(Math.min(scaledThickness, maxThickness).toFixed(3));
-                    const newDimensions = {
-                        widthMeters: nextWidth,
-                        depthMeters: nextDepth,
-                        heightMeters: dims.heightMeters,
-                        wallThicknessMeters: nextThickness
-                    };
-
-                    node.setAttr('whdDimensions', newDimensions);
-                    node.scale({ x: 1, y: 1 });
-                    updateIsometricGeometry(node, config);
                     updateStatus(getDimensions(node, config));
                 });
 
@@ -2179,7 +2931,9 @@
                     transformerRef.current.nodes([node]);
                 }
 
-                updateDimensionLabel(node, config);
+                if (!isDoor) {
+                    updateDimensionLabel(node, config);
+                }
                 updateStatus(getDimensions(node, config));
             },
             [
@@ -2187,6 +2941,7 @@
                 findAvailableWorldPosition,
                 handleDragBound,
                 handleOpenToolsModal,
+                updateDoorsForHost,
                 resolveWorldPosition,
                 updateStatus
             ]
@@ -2306,6 +3061,46 @@
             }
         }, [config, updateStatus]);
 
+        function renderDoorList(items) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return [
+                    el('li', { className: 'whd-tools__empty', key: 'doors-empty' }, config.strings.noDoors || DEFAULT_STRINGS.noDoors)
+                ];
+            }
+
+            return items.map(function (tool) {
+                const dimensions = tool.dimensions || {};
+                const widthValue = Number.isFinite(dimensions.width) ? dimensions.width : parseFloat(dimensions.width);
+                const heightValue = Number.isFinite(dimensions.height) ? dimensions.height : parseFloat(dimensions.height);
+                const safeWidth = Number.isFinite(widthValue) ? widthValue : 0;
+                const safeHeight = Number.isFinite(heightValue) ? heightValue : 0;
+                const className = 'whd-tool-button whd-tool-button--door';
+                const description = tool.description || '';
+
+                return el(
+                    'li',
+                    { key: tool.id },
+                    el(
+                        'button',
+                        {
+                            type: 'button',
+                            className: className,
+                            onClick: function () {
+                                handleToolClick(tool);
+                            },
+                            'aria-label': tool.label
+                        },
+                        el('span', { className: 'whd-tool-button__icon', 'aria-hidden': 'true' }, '🚪'),
+                        el(
+                            'span',
+                            { className: 'whd-tool-button__dims' },
+                            safeWidth.toFixed(2) + ' m × ' + safeHeight.toFixed(2) + ' m' + (description ? ' · ' + description : '')
+                        )
+                    )
+                );
+            });
+        }
+
         function renderCottageList(items, variant) {
             if (!Array.isArray(items) || items.length === 0) {
                 return [
@@ -2417,6 +3212,21 @@
                                     { className: 'whd-cottage-group' },
                                     el('h3', { className: 'whd-tools__subtitle' }, config.strings.userCottagesTitle),
                                     el('ul', { className: 'whd-tools__list whd-tools__list--grid' }, renderCottageList(userCottages, 'user'))
+                                )
+                            )
+                        ),
+                        el(
+                            'div',
+                            { className: 'whd-tools__section' },
+                            el('h2', { className: 'whd-tools__title' }, config.strings.fixturesHeading),
+                            el(
+                                'div',
+                                { className: 'whd-cottage-groups' },
+                                el(
+                                    'div',
+                                    { className: 'whd-cottage-group' },
+                                    el('h3', { className: 'whd-tools__subtitle' }, config.strings.adminDoorsTitle),
+                                    el('ul', { className: 'whd-tools__list whd-tools__list--grid' }, renderDoorList(adminDoors))
                                 )
                             )
                         ),
@@ -2607,12 +3417,20 @@
                               className: 'whd-modal__dialog',
                               role: 'dialog',
                               'aria-modal': 'true',
-                              'aria-label': config.strings.toolsMenuTitle
+                              'aria-label': toolsModal.labels && toolsModal.labels.title
+                                  ? toolsModal.labels.title
+                                  : config.strings.toolsMenuTitle
                           },
                           el(
                               'header',
                               { className: 'whd-modal__header' },
-                              el('h3', { className: 'whd-modal__title' }, config.strings.toolsMenuTitle),
+                              el(
+                                  'h3',
+                                  { className: 'whd-modal__title' },
+                                  toolsModal.labels && toolsModal.labels.title
+                                      ? toolsModal.labels.title
+                                      : config.strings.toolsMenuTitle
+                              ),
                               el(
                                   'button',
                                   {
@@ -2669,7 +3487,9 @@
                                       className: 'button whd-modal__delete',
                                       onClick: handleDeleteNode
                                   },
-                                  config.strings.toolsDelete
+                                  toolsModal.labels && toolsModal.labels.delete
+                                      ? toolsModal.labels.delete
+                                      : config.strings.toolsDelete
                               )
                           )
                       )

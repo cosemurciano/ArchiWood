@@ -1272,35 +1272,129 @@
         if (isoView) {
             isoView.destroyChildren();
 
-            isoView.add(
-                new Konva.Rect({
-                    x: 0,
-                    y: 0,
-                    width: widthPx,
-                    height: heightPx,
-                    fill: 'rgba(16, 185, 129, 0.35)',
-                    stroke: '#0f766e',
-                    strokeWidth: 1.5,
-                    cornerRadius: 2,
-                    name: 'whd-door-iso'
-                })
-            );
+            const worldPosition = group.getAttr('whdWorldPosition') || {};
+            const anchorWorldX = Number.isFinite(worldPosition.x) ? worldPosition.x : 0;
+            const anchorWorldY = Number.isFinite(worldPosition.y) ? worldPosition.y : 0;
+            const anchorIso = projectIsometric(anchorWorldX, anchorWorldY, 0);
 
-            if (panels === 2) {
+            let contactStart = null;
+            let contactEnd = null;
+
+            if (orientation === 'north') {
+                const contactY = anchorWorldY + thicknessPx;
+                contactStart = { x: anchorWorldX, y: contactY };
+                contactEnd = { x: anchorWorldX + widthPx, y: contactY };
+            } else if (orientation === 'south') {
+                const contactY = anchorWorldY;
+                contactStart = { x: anchorWorldX, y: contactY };
+                contactEnd = { x: anchorWorldX + widthPx, y: contactY };
+            } else if (orientation === 'west') {
+                const contactX = anchorWorldX + thicknessPx;
+                contactStart = { x: contactX, y: anchorWorldY };
+                contactEnd = { x: contactX, y: anchorWorldY + widthPx };
+            } else {
+                const contactX = anchorWorldX;
+                contactStart = { x: contactX, y: anchorWorldY };
+                contactEnd = { x: contactX, y: anchorWorldY + widthPx };
+            }
+
+            let isoBounds = null;
+
+            function projectDoorPoint(point, z) {
+                const projected = projectIsometric(point.x, point.y, z);
+                return {
+                    x: projected.x - anchorIso.x,
+                    y: projected.y - anchorIso.y
+                };
+            }
+
+            if (contactStart && contactEnd && heightPx > 0) {
+                const bottomStart = projectDoorPoint(contactStart, 0);
+                const bottomEnd = projectDoorPoint(contactEnd, 0);
+                const topEnd = projectDoorPoint(contactEnd, heightPx);
+                const topStart = projectDoorPoint(contactStart, heightPx);
+
+                const isoPoints = [
+                    bottomStart.x,
+                    bottomStart.y,
+                    bottomEnd.x,
+                    bottomEnd.y,
+                    topEnd.x,
+                    topEnd.y,
+                    topStart.x,
+                    topStart.y
+                ];
+
+                isoBounds = computeBoundsFromPoints(isoPoints);
+
                 isoView.add(
                     new Konva.Line({
-                        points: [widthPx / 2, 0, widthPx / 2, heightPx],
+                        points: isoPoints,
+                        closed: true,
+                        fill: 'rgba(16, 185, 129, 0.35)',
                         stroke: '#0f766e',
-                        strokeWidth: 1,
-                        dash: [4, 2]
+                        strokeWidth: 1.5,
+                        name: 'whd-door-iso'
                     })
                 );
+
+                if (panels === 2) {
+                    const midBottom = {
+                        x: (bottomStart.x + bottomEnd.x) / 2,
+                        y: (bottomStart.y + bottomEnd.y) / 2
+                    };
+                    const midTop = {
+                        x: (topStart.x + topEnd.x) / 2,
+                        y: (topStart.y + topEnd.y) / 2
+                    };
+
+                    isoView.add(
+                        new Konva.Line({
+                            points: [midBottom.x, midBottom.y, midTop.x, midTop.y],
+                            stroke: '#0f766e',
+                            strokeWidth: 1,
+                            dash: [4, 2]
+                        })
+                    );
+                }
+            } else {
+                isoView.add(
+                    new Konva.Rect({
+                        x: 0,
+                        y: 0,
+                        width: widthPx,
+                        height: heightPx,
+                        fill: 'rgba(16, 185, 129, 0.35)',
+                        stroke: '#0f766e',
+                        strokeWidth: 1.5,
+                        cornerRadius: 2,
+                        name: 'whd-door-iso'
+                    })
+                );
+
+                isoBounds = {
+                    minX: 0,
+                    minY: 0,
+                    maxX: widthPx,
+                    maxY: heightPx
+                };
+
+                if (panels === 2) {
+                    isoView.add(
+                        new Konva.Line({
+                            points: [widthPx / 2, 0, widthPx / 2, heightPx],
+                            stroke: '#0f766e',
+                            strokeWidth: 1,
+                            dash: [4, 2]
+                        })
+                    );
+                }
             }
 
             const isoButton = ensureControlButton(group, isoView, 'iso');
-            if (isoButton) {
-                const buttonX = Math.max(4, widthPx - CONTROL_BUTTON_SIZE - 4);
-                const buttonY = Math.max(4, 4);
+            if (isoButton && isoBounds) {
+                const buttonX = Math.max(4, isoBounds.maxX - CONTROL_BUTTON_SIZE - 4);
+                const buttonY = Math.max(4, isoBounds.minY + 4);
                 isoButton.position({ x: buttonX, y: buttonY });
                 isoButton.moveToTop();
             }

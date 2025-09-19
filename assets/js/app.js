@@ -69,9 +69,26 @@
     }
 
     function computeIsoOffset(width, height, gridSize) {
-        const margin = gridSize || 0;
-        const offsetX = (height + margin) * ISO_COS;
-        const offsetY = margin;
+        const safeWidth = Number.isFinite(width) && width > 0 ? width : 0;
+        const safeHeight = Number.isFinite(height) && height > 0 ? height : 0;
+        const margin = gridSize && gridSize > 0 ? gridSize : 0;
+
+        const isoWidth = (safeWidth + safeHeight) * ISO_COS;
+        const isoHeight = (safeWidth + safeHeight) * ISO_SIN;
+        const horizontalSpace = Math.max(safeWidth - isoWidth, 0);
+        const verticalSpace = Math.max(safeHeight - isoHeight, 0);
+
+        const clampedMarginX = Math.min(margin, safeWidth / 2);
+        const clampedMarginY = Math.min(margin, safeHeight / 2);
+
+        const baseOffsetX = clampedMarginX + horizontalSpace / 2;
+        const baseOffsetY = clampedMarginY + verticalSpace / 2;
+
+        const maxOffsetX = safeWidth - clampedMarginX;
+        const maxOffsetY = safeHeight - clampedMarginY;
+
+        const offsetX = Math.max(clampedMarginX, Math.min(baseOffsetX, maxOffsetX));
+        const offsetY = Math.max(clampedMarginY, Math.min(baseOffsetY, maxOffsetY));
 
         return { x: offsetX, y: offsetY };
     }

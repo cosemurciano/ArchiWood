@@ -34,6 +34,11 @@
     gap: 0.35rem;
 }
 
+.whd-casetta-field input,
+.whd-casetta-field select {
+    width: 100%;
+}
+
 .whd-casette-empty {
     margin: 0;
     font-style: italic;

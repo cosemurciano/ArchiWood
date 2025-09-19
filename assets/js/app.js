@@ -59,6 +59,52 @@
     const ISO_INV_COS = ISO_COS === 0 ? 0 : 1 / ISO_COS;
     const ISO_INV_SIN = ISO_SIN === 0 ? 0 : 1 / ISO_SIN;
     const CONTROL_BUTTON_SIZE = 24;
+    const DEFAULT_WALL_THICKNESS_METERS = 0.045;
+
+    function hasValidWallThickness(wallThicknessPx, widthPx, depthPx) {
+        const normalizedThickness = wallThicknessPx > 0 ? wallThicknessPx : 0;
+        return (
+            normalizedThickness > 0 &&
+            normalizedThickness * 2 < widthPx &&
+            normalizedThickness * 2 < depthPx
+        );
+    }
+
+    function drawPolygonPath(context, points) {
+        if (!Array.isArray(points) || points.length < 6) {
+            return;
+        }
+
+        context.moveTo(points[0], points[1]);
+        for (let index = 2; index < points.length; index += 2) {
+            context.lineTo(points[index], points[index + 1]);
+        }
+        context.closePath();
+    }
+
+    function createRingShape(outerPoints, innerPoints, attrs) {
+        const hasInner = Array.isArray(innerPoints) && innerPoints.length >= 6;
+        const config = attrs || {};
+
+        return new Konva.Shape(
+            Object.assign(
+                {
+                    sceneFunc: function (context, shape) {
+                        context.beginPath();
+                        drawPolygonPath(context, outerPoints);
+
+                        if (hasInner) {
+                            drawPolygonPath(context, innerPoints);
+                        }
+
+                        context.fillStrokeShape(shape);
+                    },
+                    fillRule: hasInner ? 'evenodd' : 'nonzero'
+                },
+                config
+            )
+        );
+    }
 
     function snapPosition(position, gridSize) {
         const size = gridSize > 0 ? gridSize : 1;
@@ -298,6 +344,178 @@
         };
     }
 
+    function buildIsometricShellRectangleGeometry(widthPx, depthPx, heightPx, wallThicknessPx) {
+        const innerWidth = widthPx - wallThicknessPx * 2;
+        const innerDepth = depthPx - wallThicknessPx * 2;
+
+        if (innerWidth <= 0 || innerDepth <= 0) {
+            return {
+                solid: true,
+                geometry: buildIsometricRectangleGeometry(widthPx, depthPx, heightPx)
+            };
+        }
+
+        const outerCorners = {
+            backLeftBottom: projectIsometric(0, 0, 0),
+            backRightBottom: projectIsometric(widthPx, 0, 0),
+            frontLeftBottom: projectIsometric(0, depthPx, 0),
+            frontRightBottom: projectIsometric(widthPx, depthPx, 0),
+            backLeftTop: projectIsometric(0, 0, heightPx),
+            backRightTop: projectIsometric(widthPx, 0, heightPx),
+            frontLeftTop: projectIsometric(0, depthPx, heightPx),
+            frontRightTop: projectIsometric(widthPx, depthPx, heightPx)
+        };
+
+        const innerCorners = {
+            backLeftBottom: projectIsometric(wallThicknessPx, wallThicknessPx, 0),
+            backRightBottom: projectIsometric(wallThicknessPx + innerWidth, wallThicknessPx, 0),
+            frontLeftBottom: projectIsometric(wallThicknessPx, wallThicknessPx + innerDepth, 0),
+            frontRightBottom: projectIsometric(wallThicknessPx + innerWidth, wallThicknessPx + innerDepth, 0),
+            backLeftTop: projectIsometric(wallThicknessPx, wallThicknessPx, heightPx),
+            backRightTop: projectIsometric(wallThicknessPx + innerWidth, wallThicknessPx, heightPx),
+            frontLeftTop: projectIsometric(wallThicknessPx, wallThicknessPx + innerDepth, heightPx),
+            frontRightTop: projectIsometric(wallThicknessPx + innerWidth, wallThicknessPx + innerDepth, heightPx)
+        };
+
+        const shiftX = -outerCorners.backLeftBottom.x;
+        const shiftY = -outerCorners.backLeftBottom.y;
+
+        function shiftPoints(source) {
+            const result = {};
+            Object.keys(source).forEach(function (key) {
+                result[key] = {
+                    x: source[key].x + shiftX,
+                    y: source[key].y + shiftY
+                };
+            });
+            return result;
+        }
+
+        const outerShifted = shiftPoints(outerCorners);
+        const innerShifted = shiftPoints(innerCorners);
+
+        let minY = Infinity;
+        Object.keys(outerShifted).forEach(function (key) {
+            minY = Math.min(minY, outerShifted[key].y);
+        });
+        Object.keys(innerShifted).forEach(function (key) {
+            minY = Math.min(minY, innerShifted[key].y);
+        });
+
+        const extraY = minY < 0 ? -minY : 0;
+        Object.keys(outerShifted).forEach(function (key) {
+            outerShifted[key].y += extraY;
+        });
+        Object.keys(innerShifted).forEach(function (key) {
+            innerShifted[key].y += extraY;
+        });
+
+        const baseY = outerShifted.backLeftBottom.y;
+        Object.keys(outerShifted).forEach(function (key) {
+            outerShifted[key].y -= baseY;
+        });
+        Object.keys(innerShifted).forEach(function (key) {
+            innerShifted[key].y -= baseY;
+        });
+
+        function flatten(pointsArray) {
+            const result = [];
+            pointsArray.forEach(function (point) {
+                result.push(point.x, point.y);
+            });
+            return result;
+        }
+
+        const topOuter = flatten([
+            outerShifted.backLeftTop,
+            outerShifted.backRightTop,
+            outerShifted.frontRightTop,
+            outerShifted.frontLeftTop
+        ]);
+        const topInner = flatten([
+            innerShifted.backLeftTop,
+            innerShifted.backRightTop,
+            innerShifted.frontRightTop,
+            innerShifted.frontLeftTop
+        ]);
+
+        const leftOuter = flatten([
+            outerShifted.backLeftTop,
+            outerShifted.frontLeftTop,
+            outerShifted.frontLeftBottom,
+            outerShifted.backLeftBottom
+        ]);
+        const leftInner = flatten([
+            innerShifted.backLeftTop,
+            innerShifted.frontLeftTop,
+            innerShifted.frontLeftBottom,
+            innerShifted.backLeftBottom
+        ]);
+
+        const rightOuter = flatten([
+            outerShifted.backRightTop,
+            outerShifted.frontRightTop,
+            outerShifted.frontRightBottom,
+            outerShifted.backRightBottom
+        ]);
+        const rightInner = flatten([
+            innerShifted.backRightTop,
+            innerShifted.frontRightTop,
+            innerShifted.frontRightBottom,
+            innerShifted.backRightBottom
+        ]);
+
+        const outlineOuter = [
+            outerShifted.backLeftTop.x,
+            outerShifted.backLeftTop.y,
+            outerShifted.backRightTop.x,
+            outerShifted.backRightTop.y,
+            outerShifted.frontRightTop.x,
+            outerShifted.frontRightTop.y,
+            outerShifted.frontRightBottom.x,
+            outerShifted.frontRightBottom.y,
+            outerShifted.frontLeftBottom.x,
+            outerShifted.frontLeftBottom.y,
+            outerShifted.frontLeftTop.x,
+            outerShifted.frontLeftTop.y,
+            outerShifted.backLeftTop.x,
+            outerShifted.backLeftTop.y,
+            outerShifted.backLeftBottom.x,
+            outerShifted.backLeftBottom.y,
+            outerShifted.backRightBottom.x,
+            outerShifted.backRightBottom.y
+        ];
+
+        const outlineInner = flatten([
+            innerShifted.backLeftTop,
+            innerShifted.backRightTop,
+            innerShifted.frontRightTop,
+            innerShifted.frontLeftTop,
+            innerShifted.backLeftTop
+        ]);
+
+        return {
+            solid: false,
+            top: {
+                outer: topOuter,
+                inner: topInner
+            },
+            left: {
+                outer: leftOuter,
+                inner: leftInner
+            },
+            right: {
+                outer: rightOuter,
+                inner: rightInner
+            },
+            outline: {
+                outer: outlineOuter,
+                inner: outlineInner
+            },
+            bounds: computeBoundsFromPoints(outlineOuter)
+        };
+    }
+
     function buildRegularPolygonPoints(sides, widthPx, depthPx) {
         const count = Math.max(3, Math.round(sides));
         const centerX = widthPx / 2;
@@ -481,6 +699,11 @@
         const widthPx = dimensions.widthMeters * pixelsPerMeter;
         const depthPx = dimensions.depthMeters * pixelsPerMeter;
         const heightPx = dimensions.heightMeters * pixelsPerMeter;
+        const wallThicknessMeters =
+            dimensions.wallThicknessMeters && dimensions.wallThicknessMeters > 0
+                ? dimensions.wallThicknessMeters
+                : DEFAULT_WALL_THICKNESS_METERS;
+        const wallThicknessPx = wallThicknessMeters * pixelsPerMeter;
 
         const sides = node.getAttr('whdPolygonSides') || 4;
 
@@ -488,7 +711,8 @@
             sides: sides,
             widthPx: widthPx,
             depthPx: depthPx,
-            heightPx: heightPx
+            heightPx: heightPx,
+            wallThicknessPx: wallThicknessPx
         });
     }
 
@@ -502,11 +726,14 @@
         const widthPx = normalized.widthPx || 0;
         const depthPx = normalized.depthPx || 0;
         const heightPx = normalized.heightPx || 0;
+        const wallThicknessPx = normalized.wallThicknessPx || 0;
+        const shellEnabled = hasValidWallThickness(wallThicknessPx, widthPx, depthPx);
 
         group.setAttr('whdPixelSize', {
             widthPx: widthPx,
             depthPx: depthPx,
-            heightPx: heightPx
+            heightPx: heightPx,
+            wallThicknessPx: wallThicknessPx
         });
 
         const topView = group.findOne('.whd-top-view');
@@ -514,29 +741,85 @@
             topView.destroyChildren();
 
             if (sides === 4) {
-                topView.add(
-                    new Konva.Rect({
-                        x: 0,
-                        y: 0,
-                        width: widthPx,
-                        height: depthPx,
-                        fill: 'rgba(66, 153, 225, 0.25)',
-                        stroke: '#2b6cb0',
-                        strokeWidth: 2,
-                        name: 'whd-top-rect'
-                    })
-                );
+                if (shellEnabled) {
+                    const outerPoints = [
+                        0,
+                        0,
+                        widthPx,
+                        0,
+                        widthPx,
+                        depthPx,
+                        0,
+                        depthPx
+                    ];
+                    const innerPoints = [
+                        wallThicknessPx,
+                        wallThicknessPx,
+                        widthPx - wallThicknessPx,
+                        wallThicknessPx,
+                        widthPx - wallThicknessPx,
+                        depthPx - wallThicknessPx,
+                        wallThicknessPx,
+                        depthPx - wallThicknessPx
+                    ];
+
+                    topView.add(
+                        createRingShape(outerPoints, innerPoints, {
+                            fill: 'rgba(66, 153, 225, 0.25)',
+                            stroke: '#2b6cb0',
+                            strokeWidth: 2,
+                            name: 'whd-top-rect'
+                        })
+                    );
+                } else {
+                    topView.add(
+                        new Konva.Rect({
+                            x: 0,
+                            y: 0,
+                            width: widthPx,
+                            height: depthPx,
+                            fill: 'rgba(66, 153, 225, 0.25)',
+                            stroke: '#2b6cb0',
+                            strokeWidth: 2,
+                            name: 'whd-top-rect'
+                        })
+                    );
+                }
             } else {
-                topView.add(
-                    new Konva.Line({
-                        points: buildRegularPolygonPoints(sides, widthPx, depthPx),
-                        closed: true,
-                        fill: 'rgba(66, 153, 225, 0.25)',
-                        stroke: '#2b6cb0',
-                        strokeWidth: 2,
-                        name: 'whd-top-polygon'
-                    })
-                );
+                const outerPoints = buildRegularPolygonPoints(sides, widthPx, depthPx);
+                if (shellEnabled) {
+                    const centerX = widthPx / 2;
+                    const centerY = depthPx / 2;
+                    const scaleX = widthPx > 0 ? Math.max((widthPx - wallThicknessPx * 2) / widthPx, 0) : 0;
+                    const scaleY = depthPx > 0 ? Math.max((depthPx - wallThicknessPx * 2) / depthPx, 0) : 0;
+                    const innerPoints = [];
+
+                    for (let index = 0; index < outerPoints.length; index += 2) {
+                        const dx = outerPoints[index] - centerX;
+                        const dy = outerPoints[index + 1] - centerY;
+                        innerPoints.push(centerX + dx * scaleX, centerY + dy * scaleY);
+                    }
+
+                    topView.add(
+                        createRingShape(outerPoints, innerPoints, {
+                            fill: 'rgba(66, 153, 225, 0.25)',
+                            stroke: '#2b6cb0',
+                            strokeWidth: 2,
+                            name: 'whd-top-polygon'
+                        })
+                    );
+                } else {
+                    topView.add(
+                        new Konva.Line({
+                            points: outerPoints,
+                            closed: true,
+                            fill: 'rgba(66, 153, 225, 0.25)',
+                            stroke: '#2b6cb0',
+                            strokeWidth: 2,
+                            name: 'whd-top-polygon'
+                        })
+                    );
+                }
             }
 
             const topButton = ensureControlButton(group, topView, 'top');
@@ -556,50 +839,155 @@
             let isoBounds = null;
 
             if (sides === 4) {
-                const geometry = buildIsometricRectangleGeometry(widthPx, depthPx, heightPx);
-                isoBounds = geometry.bounds;
+                if (shellEnabled) {
+                    const shellGeometry = buildIsometricShellRectangleGeometry(
+                        widthPx,
+                        depthPx,
+                        heightPx,
+                        wallThicknessPx
+                    );
 
-                const topFace = new Konva.Line({
-                    points: geometry.top,
-                    closed: true,
-                    fill: 'rgba(191, 219, 254, 0.55)',
-                    stroke: '#1e3a8a',
-                    strokeWidth: 1,
-                    name: 'whd-iso-top'
-                });
+                    if (shellGeometry.solid) {
+                        const geometry = shellGeometry.geometry;
+                        isoBounds = geometry.bounds;
 
-                const leftFace = new Konva.Line({
-                    points: geometry.left,
-                    closed: true,
-                    fill: 'rgba(59, 130, 246, 0.35)',
-                    stroke: '#1e3a8a',
-                    strokeWidth: 1,
-                    name: 'whd-iso-left'
-                });
+                        const topFace = new Konva.Line({
+                            points: geometry.top,
+                            closed: true,
+                            fill: 'rgba(191, 219, 254, 0.55)',
+                            stroke: '#1e3a8a',
+                            strokeWidth: 1,
+                            name: 'whd-iso-top'
+                        });
 
-                const rightFace = new Konva.Line({
-                    points: geometry.right,
-                    closed: true,
-                    fill: 'rgba(37, 99, 235, 0.45)',
-                    stroke: '#1e3a8a',
-                    strokeWidth: 1,
-                    name: 'whd-iso-right'
-                });
+                        const leftFace = new Konva.Line({
+                            points: geometry.left,
+                            closed: true,
+                            fill: 'rgba(59, 130, 246, 0.35)',
+                            stroke: '#1e3a8a',
+                            strokeWidth: 1,
+                            name: 'whd-iso-left'
+                        });
 
-                // Draw faces from farthest to nearest so the perspective feels 3D.
-                isoGroup.add(topFace);
-                isoGroup.add(leftFace);
-                isoGroup.add(rightFace);
+                        const rightFace = new Konva.Line({
+                            points: geometry.right,
+                            closed: true,
+                            fill: 'rgba(37, 99, 235, 0.45)',
+                            stroke: '#1e3a8a',
+                            strokeWidth: 1,
+                            name: 'whd-iso-right'
+                        });
 
-                isoGroup.add(
-                    new Konva.Line({
-                        points: geometry.outline,
-                        closed: false,
+                        isoGroup.add(topFace);
+                        isoGroup.add(leftFace);
+                        isoGroup.add(rightFace);
+
+                        isoGroup.add(
+                            new Konva.Line({
+                                points: geometry.outline,
+                                closed: false,
+                                stroke: '#1e3a8a',
+                                strokeWidth: 1.5,
+                                name: 'whd-iso-outline'
+                            })
+                        );
+                    } else {
+                        isoBounds = shellGeometry.bounds;
+
+                        isoGroup.add(
+                            createRingShape(shellGeometry.top.outer, shellGeometry.top.inner, {
+                                fill: 'rgba(191, 219, 254, 0.55)',
+                                stroke: '#1e3a8a',
+                                strokeWidth: 1,
+                                name: 'whd-iso-top'
+                            })
+                        );
+
+                        isoGroup.add(
+                            createRingShape(shellGeometry.left.outer, shellGeometry.left.inner, {
+                                fill: 'rgba(59, 130, 246, 0.35)',
+                                stroke: '#1e3a8a',
+                                strokeWidth: 1,
+                                name: 'whd-iso-left'
+                            })
+                        );
+
+                        isoGroup.add(
+                            createRingShape(shellGeometry.right.outer, shellGeometry.right.inner, {
+                                fill: 'rgba(37, 99, 235, 0.45)',
+                                stroke: '#1e3a8a',
+                                strokeWidth: 1,
+                                name: 'whd-iso-right'
+                            })
+                        );
+
+                        isoGroup.add(
+                            new Konva.Line({
+                                points: shellGeometry.outline.outer,
+                                closed: false,
+                                stroke: '#1e3a8a',
+                                strokeWidth: 1.5,
+                                name: 'whd-iso-outline'
+                            })
+                        );
+
+                        if (Array.isArray(shellGeometry.outline.inner) && shellGeometry.outline.inner.length >= 6) {
+                            isoGroup.add(
+                                new Konva.Line({
+                                    points: shellGeometry.outline.inner,
+                                    closed: true,
+                                    stroke: '#1e3a8a',
+                                    strokeWidth: 1,
+                                    name: 'whd-iso-inner-outline'
+                                })
+                            );
+                        }
+                    }
+                } else {
+                    const geometry = buildIsometricRectangleGeometry(widthPx, depthPx, heightPx);
+                    isoBounds = geometry.bounds;
+
+                    const topFace = new Konva.Line({
+                        points: geometry.top,
+                        closed: true,
+                        fill: 'rgba(191, 219, 254, 0.55)',
                         stroke: '#1e3a8a',
-                        strokeWidth: 1.5,
-                        name: 'whd-iso-outline'
-                    })
-                );
+                        strokeWidth: 1,
+                        name: 'whd-iso-top'
+                    });
+
+                    const leftFace = new Konva.Line({
+                        points: geometry.left,
+                        closed: true,
+                        fill: 'rgba(59, 130, 246, 0.35)',
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1,
+                        name: 'whd-iso-left'
+                    });
+
+                    const rightFace = new Konva.Line({
+                        points: geometry.right,
+                        closed: true,
+                        fill: 'rgba(37, 99, 235, 0.45)',
+                        stroke: '#1e3a8a',
+                        strokeWidth: 1,
+                        name: 'whd-iso-right'
+                    });
+
+                    isoGroup.add(topFace);
+                    isoGroup.add(leftFace);
+                    isoGroup.add(rightFace);
+
+                    isoGroup.add(
+                        new Konva.Line({
+                            points: geometry.outline,
+                            closed: false,
+                            stroke: '#1e3a8a',
+                            strokeWidth: 1.5,
+                            name: 'whd-iso-outline'
+                        })
+                    );
+                }
             } else {
                 const polygonPoints = buildRegularPolygonPoints(sides, widthPx, depthPx);
                 const geometry = buildIsometricPolygonGeometry(polygonPoints, heightPx);
@@ -665,10 +1053,15 @@
         const depthMeters = normalized.depthMeters;
         const heightMeters = normalized.heightMeters;
         const polygonSides = normalized.sides && normalized.sides >= 3 ? Math.round(normalized.sides) : 4;
+        const wallThicknessMeters =
+            normalized.wallThicknessMeters && normalized.wallThicknessMeters > 0
+                ? normalized.wallThicknessMeters
+                : DEFAULT_WALL_THICKNESS_METERS;
 
         const widthPx = widthMeters * pixelsPerMeter;
         const depthPx = depthMeters * pixelsPerMeter;
         const heightPx = heightMeters * pixelsPerMeter;
+        const wallThicknessPx = wallThicknessMeters * pixelsPerMeter;
 
         const group = new Konva.Group({
             x: gridSize * 2,
@@ -684,7 +1077,8 @@
         group.setAttr('whdDimensions', {
             widthMeters: widthMeters,
             depthMeters: depthMeters,
-            heightMeters: heightMeters
+            heightMeters: heightMeters,
+            wallThicknessMeters: wallThicknessMeters
         });
 
         group.setAttr('whdPolygonSides', polygonSides);
@@ -703,7 +1097,8 @@
             sides: polygonSides,
             widthPx: widthPx,
             depthPx: depthPx,
-            heightPx: heightPx
+            heightPx: heightPx,
+            wallThicknessPx: wallThicknessPx
         });
 
         return group;
@@ -738,12 +1133,17 @@
             const width = parseFloat(raw.width);
             const depth = parseFloat(raw.depth);
             const heightValue = parseFloat(raw.height);
+            const wallThicknessValue = parseFloat(raw.wall_thickness);
 
             if (!width || width <= 0 || !depth || depth <= 0) {
                 continue;
             }
 
             const heightMeters = heightValue && heightValue > 0 ? heightValue : 3;
+            const allowedThickness = [28, 45, 80];
+            const roundedThickness = Math.round(wallThicknessValue);
+            const thicknessMm = allowedThickness.includes(roundedThickness) ? roundedThickness : 45;
+            const wallThicknessMeters = thicknessMm / 1000;
             const replacements = {
                 width: String(parseFloat(width.toFixed(2))),
                 depth: String(parseFloat(depth.toFixed(2))),
@@ -756,7 +1156,8 @@
                 dimensions: {
                     width: width,
                     depth: depth,
-                    height: heightMeters
+                    height: heightMeters,
+                    wallThickness: wallThicknessMeters
                 },
                 origin: 'admin',
                 factory: function (options) {
@@ -767,7 +1168,8 @@
                         scaleRatio: currentScale,
                         widthMeters: width,
                         depthMeters: depth,
-                        heightMeters: heightMeters
+                        heightMeters: heightMeters,
+                        wallThicknessMeters: wallThicknessMeters
                     });
                 }
             });
@@ -1337,10 +1739,21 @@
 
                     const scaleX = node.scaleX() || 1;
                     const scaleY = node.scaleY() || 1;
+                    const averageScale = (Math.abs(scaleX) + Math.abs(scaleY)) / 2;
+                    const nextWidth = parseFloat((dims.widthMeters * scaleX).toFixed(2));
+                    const nextDepth = parseFloat((dims.depthMeters * scaleY).toFixed(2));
+                    const baseThickness =
+                        dims.wallThicknessMeters && dims.wallThicknessMeters > 0
+                            ? dims.wallThicknessMeters
+                            : DEFAULT_WALL_THICKNESS_METERS;
+                    const scaledThickness = baseThickness * averageScale;
+                    const maxThickness = Math.min(nextWidth / 2, nextDepth / 2);
+                    const nextThickness = parseFloat(Math.min(scaledThickness, maxThickness).toFixed(3));
                     const newDimensions = {
-                        widthMeters: parseFloat((dims.widthMeters * scaleX).toFixed(2)),
-                        depthMeters: parseFloat((dims.depthMeters * scaleY).toFixed(2)),
-                        heightMeters: dims.heightMeters
+                        widthMeters: nextWidth,
+                        depthMeters: nextDepth,
+                        heightMeters: dims.heightMeters,
+                        wallThicknessMeters: nextThickness
                     };
 
                     node.setAttr('whdDimensions', newDimensions);
@@ -1411,7 +1824,8 @@
                     dimensions: {
                         width: widthMeters,
                         depth: depthMeters,
-                        height: heightMeters
+                        height: heightMeters,
+                        wallThickness: DEFAULT_WALL_THICKNESS_METERS
                     },
                     factory: function (options) {
                         const currentGrid = options && options.gridSize ? options.gridSize : config.gridSize;
@@ -1422,7 +1836,8 @@
                             widthMeters: widthMeters,
                             depthMeters: depthMeters,
                             heightMeters: heightMeters,
-                            sides: sidesValue
+                            sides: sidesValue,
+                            wallThicknessMeters: DEFAULT_WALL_THICKNESS_METERS
                         });
                     }
                 };

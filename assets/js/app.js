@@ -34,6 +34,9 @@
         viewTop: 'Top View',
         viewIso: 'Isometric View',
         viewToggleLabel: 'View mode',
+        zoomIn: 'Zoom in',
+        zoomOut: 'Zoom out',
+        zoomControls: 'Zoom controls',
         isoViewStatus: 'Isometric view active.',
         customHeading: 'Create custom cottage',
         sidesLabel: 'Number of sides',
@@ -62,6 +65,10 @@
     const ISO_INV_SIN = ISO_SIN === 0 ? 0 : 1 / ISO_SIN;
     const CONTROL_BUTTON_SIZE = 24;
     const DEFAULT_WALL_THICKNESS_METERS = 0.045;
+    const ISO_CENTER_PADDING = 48;
+    const MIN_ZOOM = 0.5;
+    const MAX_ZOOM = 2;
+    const ZOOM_STEP = 0.2;
 
     function hasValidWallThickness(wallThicknessPx, widthPx, depthPx) {
         const normalizedThickness = wallThicknessPx > 0 ? wallThicknessPx : 0;
@@ -1405,9 +1412,11 @@
         const statusRef = useRef('');
         const viewModeRef = useRef('top');
         const isoOffsetRef = useRef({ x: 0, y: 0 });
+        const zoomRef = useRef(1);
 
         const [status, setStatus] = useState('');
         const [viewMode, setViewMode] = useState('top');
+        const [zoomLevel, setZoomLevel] = useState(1);
         const [customSides, setCustomSides] = useState('4');
         const [customWidth, setCustomWidth] = useState('');
         const [customDepth, setCustomDepth] = useState('');
@@ -1603,6 +1612,227 @@
             setStatus(message);
         }, []);
 
+        const computeIsoContentBounds = useCallback(
+            function () {
+                const layer = drawingLayerRef.current;
+                if (!layer) {
+                    return null;
+                }
+
+                const children = layer.getChildren();
+                if (!children || children.length === 0) {
+                    return null;
+                }
+
+                const isoOptions = { isoOffset: { x: 0, y: 0 } };
+                let bounds = null;
+
+                for (let index = 0; index < children.length; index++) {
+                    const child = children[index];
+                    const rect = getNodeFootprintRect(child);
+
+                    if (!rect) {
+                        continue;
+                    }
+
+                    const corners = [
+                        { x: rect.x, y: rect.y },
+                        { x: rect.x + rect.width, y: rect.y },
+                        { x: rect.x, y: rect.y + rect.height },
+                        { x: rect.x + rect.width, y: rect.y + rect.height }
+                    ];
+
+                    for (let cornerIndex = 0; cornerIndex < corners.length; cornerIndex++) {
+                        const corner = corners[cornerIndex];
+                        const isoPoint = worldToViewPosition(corner, 'iso', isoOptions);
+
+                        if (!bounds) {
+                            bounds = {
+                                minX: isoPoint.x,
+                                minY: isoPoint.y,
+                                maxX: isoPoint.x,
+                                maxY: isoPoint.y
+                            };
+                        } else {
+                            bounds.minX = Math.min(bounds.minX, isoPoint.x);
+                            bounds.minY = Math.min(bounds.minY, isoPoint.y);
+                            bounds.maxX = Math.max(bounds.maxX, isoPoint.x);
+                            bounds.maxY = Math.max(bounds.maxY, isoPoint.y);
+                        }
+                    }
+                }
+
+                if (!bounds) {
+                    return null;
+                }
+
+                const paddingBase = Number.isFinite(config.gridSize) && config.gridSize > 0 ? config.gridSize : 50;
+                const padding = Math.max(Math.min(paddingBase, ISO_CENTER_PADDING), 24);
+
+                return {
+                    minX: bounds.minX - padding,
+                    minY: bounds.minY - padding,
+                    maxX: bounds.maxX + padding,
+                    maxY: bounds.maxY + padding
+                };
+            },
+            [config.gridSize, getNodeFootprintRect]
+        );
+
+        const updateIsoOffset = useCallback(
+            function () {
+                const stage = stageRef.current;
+
+                if (!stage) {
+                    const fallback = { x: 0, y: 0 };
+                    isoOffsetRef.current = fallback;
+                    return fallback;
+                }
+
+                const stageWidth = stage.width();
+                const stageHeight = stage.height();
+
+                const bounds = computeIsoContentBounds();
+
+                if (!bounds) {
+                    const fallback = computeIsoOffset(stageWidth, stageHeight, config.gridSize);
+                    isoOffsetRef.current = fallback;
+                    return fallback;
+                }
+
+                const stageCenterX = stageWidth / 2;
+                const stageCenterY = stageHeight / 2;
+                const contentCenterX = (bounds.minX + bounds.maxX) / 2;
+                const contentCenterY = (bounds.minY + bounds.maxY) / 2;
+
+                let offsetX = stageCenterX - contentCenterX;
+                let offsetY = stageCenterY - contentCenterY;
+
+                const minXOffset = -bounds.minX;
+                const maxXOffset = stageWidth - bounds.maxX;
+
+                if (minXOffset <= maxXOffset) {
+                    offsetX = Math.min(Math.max(offsetX, minXOffset), maxXOffset);
+                } else {
+                    offsetX = (minXOffset + maxXOffset) / 2;
+                }
+
+                const minYOffset = -bounds.minY;
+                const maxYOffset = stageHeight - bounds.maxY;
+
+                if (minYOffset <= maxYOffset) {
+                    offsetY = Math.min(Math.max(offsetY, minYOffset), maxYOffset);
+                } else {
+                    offsetY = (minYOffset + maxYOffset) / 2;
+                }
+
+                const result = { x: offsetX, y: offsetY };
+                isoOffsetRef.current = result;
+
+                return result;
+            },
+            [computeIsoContentBounds, config.gridSize]
+        );
+
+        const applyViewModeToStage = useCallback(
+            function (mode) {
+                const stage = stageRef.current;
+                const gridLayer = gridLayerRef.current;
+                const drawingLayer = drawingLayerRef.current;
+                let isoOffset = isoOffsetRef.current;
+
+                if (stage) {
+                    if (mode === 'iso') {
+                        isoOffset = updateIsoOffset();
+                    } else {
+                        isoOffset = computeIsoOffset(stage.width(), stage.height(), config.gridSize);
+                        isoOffsetRef.current = isoOffset;
+                    }
+                } else {
+                    isoOffset = { x: 0, y: 0 };
+                    isoOffsetRef.current = isoOffset;
+                }
+
+                if (gridLayer && stage) {
+                    drawGrid(
+                        gridLayer,
+                        stage.width(),
+                        stage.height(),
+                        config.gridSize,
+                        config.scaleRatio,
+                        mode,
+                        { isoOffset: isoOffset }
+                    );
+                }
+
+                if (drawingLayer) {
+                    drawingLayer.getChildren().forEach(function (node) {
+                        applyViewModeToNode(node, mode, {
+                            isoOffset: isoOffset,
+                            gridSize: config.gridSize,
+                            dragBoundFunc: handleDragBound
+                        });
+                    });
+                    drawingLayer.batchDraw();
+                }
+
+                const transformer = transformerRef.current;
+                if (transformer && transformer.nodes().length > 0) {
+                    updateStatus(getDimensions(transformer.nodes()[0], config));
+                } else if (mode === 'iso') {
+                    updateStatus(config.strings.isoViewStatus);
+                } else {
+                    updateStatus(config.strings.ready);
+                }
+
+                return isoOffset;
+            },
+            [config, handleDragBound, updateIsoOffset, updateStatus]
+        );
+
+        const applyZoom = useCallback(
+            function (nextZoom) {
+                const stage = stageRef.current;
+
+                if (!stage) {
+                    return;
+                }
+
+                const normalized = Number.isFinite(nextZoom) ? nextZoom : zoomRef.current;
+                const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, normalized));
+                zoomRef.current = clamped;
+
+                const centerX = stage.width() / 2;
+                const centerY = stage.height() / 2;
+
+                stage.scale({ x: clamped, y: clamped });
+                stage.position({
+                    x: centerX - centerX * clamped,
+                    y: centerY - centerY * clamped
+                });
+                stage.batchDraw();
+
+                setZoomLevel(function (previous) {
+                    return Math.abs(previous - clamped) < 0.0001 ? previous : clamped;
+                });
+            },
+            []
+        );
+
+        const handleZoomIn = useCallback(
+            function () {
+                applyZoom(zoomRef.current + ZOOM_STEP);
+            },
+            [applyZoom]
+        );
+
+        const handleZoomOut = useCallback(
+            function () {
+                applyZoom(zoomRef.current - ZOOM_STEP);
+            },
+            [applyZoom]
+        );
+
         const handleOpenToolsModal = useCallback(
             function (node) {
                 if (!node) {
@@ -1719,32 +1949,14 @@
             function resizeStage() {
                 const containerWidth = container.clientWidth || width;
                 const containerHeight = container.clientHeight || height;
+
                 stage.size({
                     width: containerWidth || width,
                     height: containerHeight || height
                 });
-                const isoOffset = computeIsoOffset(stage.width(), stage.height(), config.gridSize);
-                isoOffsetRef.current = isoOffset;
-                drawGrid(
-                    gridLayer,
-                    stage.width(),
-                    stage.height(),
-                    config.gridSize,
-                    config.scaleRatio,
-                    viewModeRef.current,
-                    { isoOffset: isoOffset }
-                );
 
-                if (drawingLayerRef.current) {
-                    drawingLayerRef.current.getChildren().forEach(function (child) {
-                        applyViewModeToNode(child, viewModeRef.current, {
-                            isoOffset: isoOffset,
-                            gridSize: config.gridSize,
-                            dragBoundFunc: handleDragBound
-                        });
-                    });
-                    drawingLayerRef.current.batchDraw();
-                }
+                applyZoom(zoomRef.current);
+                applyViewModeToStage(viewModeRef.current);
             }
 
             const handleResize = function () {
@@ -1787,9 +1999,20 @@
                     return;
                 }
 
+                const stagePosition = stage.position();
+                const stageScaleX = stage.scaleX() || 1;
+                const stageScaleY = stage.scaleY() || 1;
+                const normalizedPointer = {
+                    x: (pointer.x - stagePosition.x) / stageScaleX,
+                    y: (pointer.y - stagePosition.y) / stageScaleY
+                };
+
                 const isoOptions = { isoOffset: isoOffsetRef.current };
                 const mode = viewModeRef.current;
-                const worldPointer = mode === 'iso' ? viewToWorldPosition(pointer, 'iso', isoOptions) : pointer;
+                const worldPointer =
+                    mode === 'iso'
+                        ? viewToWorldPosition(normalizedPointer, 'iso', isoOptions)
+                        : normalizedPointer;
 
                 if (!worldPointer || !Number.isFinite(worldPointer.x) || !Number.isFinite(worldPointer.y)) {
                     return;
@@ -1839,45 +2062,12 @@
                     stageRef.current = null;
                 }
             };
-        }, [config, handleDragBound, updateStatus]);
+        }, [applyViewModeToStage, applyZoom, config, handleDragBound, updateStatus]);
 
         useEffect(function () {
             viewModeRef.current = viewMode;
-
-            const isoOffset = isoOffsetRef.current;
-
-            if (gridLayerRef.current && stageRef.current) {
-                drawGrid(
-                    gridLayerRef.current,
-                    stageRef.current.width(),
-                    stageRef.current.height(),
-                    config.gridSize,
-                    config.scaleRatio,
-                    viewMode,
-                    { isoOffset: isoOffset }
-                );
-            }
-
-            if (drawingLayerRef.current) {
-                drawingLayerRef.current.getChildren().forEach(function (node) {
-                    applyViewModeToNode(node, viewMode, {
-                        isoOffset: isoOffset,
-                        gridSize: config.gridSize,
-                        dragBoundFunc: handleDragBound
-                    });
-                });
-                drawingLayerRef.current.batchDraw();
-            }
-
-            const transformer = transformerRef.current;
-            if (transformer && transformer.nodes().length > 0) {
-                updateStatus(getDimensions(transformer.nodes()[0], config));
-            } else if (viewMode === 'iso') {
-                updateStatus(config.strings.isoViewStatus);
-            } else {
-                updateStatus(config.strings.ready);
-            }
-        }, [config, handleDragBound, updateStatus, viewMode]);
+            applyViewModeToStage(viewMode);
+        }, [applyViewModeToStage, viewMode]);
 
         const handleToolClick = useCallback(
             function (tool) {
@@ -2163,6 +2353,9 @@
             });
         }
 
+        const canZoomIn = zoomLevel < MAX_ZOOM - 0.0001;
+        const canZoomOut = zoomLevel > MIN_ZOOM + 0.0001;
+
         return el(
             Fragment,
             null,
@@ -2354,13 +2547,47 @@
                     el(
                         'main',
                         { className: 'whd-canvas', 'aria-label': config.strings.designCanvas },
-                        el('div', {
-                            id: 'whd-stage-container',
-                            className: 'whd-canvas__stage',
-                            role: 'application',
-                            'aria-live': 'polite',
-                            ref: stageContainerRef
-                        })
+                        el(
+                            'div',
+                            { className: 'whd-canvas__stage-wrapper' },
+                            el('div', {
+                                id: 'whd-stage-container',
+                                className: 'whd-canvas__stage',
+                                role: 'application',
+                                'aria-live': 'polite',
+                                ref: stageContainerRef
+                            }),
+                            el(
+                                'div',
+                                {
+                                    className: 'whd-zoom-controls',
+                                    role: 'group',
+                                    'aria-label': config.strings.zoomControls
+                                },
+                                el(
+                                    'button',
+                                    {
+                                        type: 'button',
+                                        className: 'whd-zoom-controls__button',
+                                        onClick: handleZoomIn,
+                                        disabled: !canZoomIn,
+                                        'aria-label': config.strings.zoomIn
+                                    },
+                                    '+'
+                                ),
+                                el(
+                                    'button',
+                                    {
+                                        type: 'button',
+                                        className: 'whd-zoom-controls__button',
+                                        onClick: handleZoomOut,
+                                        disabled: !canZoomOut,
+                                        'aria-label': config.strings.zoomOut
+                                    },
+                                    '−'
+                                )
+                            )
+                        )
                     )
                 ),
                 el(
